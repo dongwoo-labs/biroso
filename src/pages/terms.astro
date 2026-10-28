@@ -1,0 +1,30 @@
+---
+// 이용약관(구매 조건). 배송·취소·교환 안내는 원본 사이트 문구(clinic.json policies)를 그대로 쓴다.
+import Base from "../layouts/Base.astro";
+import clinic from "../data/clinic.json";
+import { renderMarkdown } from "../lib/content";
+---
+<Base title={`이용약관 | ${clinic.name}`} description={`${clinic.name} 이용약관`}>
+  <article class="wrap prose max-w-[760px] pt-8 text-[15px]">
+    <h1>이용약관</h1>
+    <h2>제1조 (목적)</h2>
+    <p>이 약관은 {clinic.name}(이하 '한의원')이 홈페이지에서 제공하는 진료 예약, 원내 상품 처방 신청과 결제 서비스의 이용 조건을 정합니다.</p>
+    <h2>제2조 (처방 신청과 진료)</h2>
+    <ul>
+      <li>원내 상품은 한의사의 진단에 따라 처방되는 의약품입니다. 결제는 처방 신청이며, 한의사의 진료 후 처방이 확정되어야 조제·발송됩니다.</li>
+      <li>진료 결과 처방이 적합하지 않다고 판단되면 처방하지 않고 결제 금액 전액을 환불합니다.</li>
+      <li>이용자는 문진에 사실대로 답해야 하며, 사실과 다른 정보로 생긴 문제는 한의원이 책임지지 않습니다.</li>
+    </ul>
+    <h2>제3조 (배송)</h2>
+    <div set:html={renderMarkdown(clinic.policies.shipping)} />
+    <h2>제4조 (주문 취소)</h2>
+    <div set:html={renderMarkdown(clinic.policies.order)} />
+    <h2>제5조 (교환·반품)</h2>
+    <div set:html={renderMarkdown(clinic.policies.return)} />
+    <h2>제6조 (복약 중 이상 증상)</h2>
+    <p>{clinic.medicineNotice} 다음 증상이 나타나면 복약을 멈추고 한의원({clinic.tel})과 상담하세요.</p>
+    <ul>{clinic.stopSigns.map((s) => <li>{s}</li>)}</ul>
+    <h2>제7조 (사업자 정보)</h2>
+    <p>상호 {clinic.name} · 대표 {clinic.ceo} · {clinic.address} · 사업자등록번호 {clinic.bizNo}{clinic.mailOrderNo && ` · 통신판매업신고 ${clinic.mailOrderNo}`} · {clinic.tel}</p>
+  </article>
+</Base>

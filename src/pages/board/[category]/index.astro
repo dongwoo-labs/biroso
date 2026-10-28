@@ -1,0 +1,21 @@
+---
+// 게시판 글 목록. 주소는 기존 사이트와 같은 /board/category-N/ 이다.
+import Base from "../../../layouts/Base.astro";
+import PostCard from "../../../components/PostCard.astro";
+import clinic from "../../../data/clinic.json";
+import { loadPosts, BOARDS } from "../../../lib/content";
+
+export async function getStaticPaths() {
+  const posts = await loadPosts();
+  return Object.entries(BOARDS).map(([key, b]) => ({ params: { category: b.path }, props: { key, posts: posts.filter((p) => p.board === key) } }));
+}
+const { key, posts } = Astro.props;
+const board = BOARDS[key];
+---
+<Base title={`${board.name} | ${clinic.name}`} description={`${clinic.name} ${board.name}`} current={key}>
+  <section class="wrap max-w-[760px] pt-8">
+    <h1 class="section-title">{board.name}</h1>
+    <p class="mt-1 text-[14px] text-ink-faint">총 {posts.length}개의 글</p>
+    {posts.length ? <div class="mt-3">{posts.map((p) => <PostCard post={p} />)}</div> : <p class="py-20 text-center text-ink-faint">아직 글이 없어요.</p>}
+  </section>
+</Base>

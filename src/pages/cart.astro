@@ -1,0 +1,89 @@
+---
+import Base from "../layouts/Base.astro";
+import clinic from "../data/clinic.json";
+import { loadProducts, productHref } from "../lib/content";
+
+// 장바구니 화면에 쓸 상품 목록(이름·가격·그림). 실제 결제 금액은 주문 API가 다시 계산한다.
+const catalog = (await loadProducts()).filter((p) => p.kind === "PAYMENT")
+  .map((p) => ({ slug: p.slug, name: p.name, price: p.salePrice, image: p.image, soldOut: p.soldOut, href: productHref(p), freeShipping: p.freeShipping }));
+---
+<Base title={`장바구니 | ${clinic.name}`} description="장바구니" task bottomBar={false}>
+  <section class="wrap max-w-[720px] pt-8">
+    <h1 class="section-title">장바구니</h1>
+    <ul class="mt-5 divide-y divide-line border-y border-line" data-lines data-catalog={JSON.stringify(catalog)} data-shipping={JSON.stringify(clinic.shipping)}></ul>
+    <div class="py-20 text-center" data-empty hidden>
+      <p class="text-ink-soft">장바구니가 비어 있어요.</p>
+      <a href="/telemedicine/product/" class="btn btn-secondary mt-4">원내 상품 보기</a>
+    </div>
+    <div class="mt-5 space-y-1.5 rounded-2xl bg-wash p-5 text-[15px]" data-summary hidden>
+      <div class="flex justify-between"><span class="text-ink-soft">상품 금액</span><span class="num font-semibold" data-items></span></div>
+      <div class="flex justify-between"><span class="text-ink-soft">배송비</span><span class="num font-semibold" data-ship></span></div>
+      <div class="flex justify-between border-t border-line pt-2 text-[17px]"><span class="font-bold">예상 결제 금액</span><span class="num font-bold" data-sum></span></div>
+      <p class="text-[12px] text-ink-faint">제주·도서산간은 {clinic.shipping.remoteExtra.toLocaleString("ko-KR")}원이 더해지고, 한의원 방문 수령은 배송비가 없어요.</p>
+    </div>
+    <a href="/checkout/" class="btn btn-primary btn-xl mt-5 w-full" data-checkout hidden>처방 신청하기</a>
+  </section>
+</Base>
+<script>
+  import { readCart, setQty, setDirect, MAX_QTY } from "../lib/cart";
+  const won = (n: number) => `${n.toLocaleString("ko-KR")}원`;
+  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+
+  function render() {
+    const ul = document.querySelector<HTMLElement>("[data-lines]");
+    if (!ul) return;
+    const catalog = new Map<string, any>(JSON.parse(ul.dataset.catalog!).map((p: any) => [p.slug, p]));
+    const ship = JSON.parse(ul.dataset.shipping!);
+    // 더 이상 팔지 않는 상품은 장바구니에서 뺀다
+    const lines = readCart().filter((l) => { const ok = catalog.has(l.slug); if (!ok) setQty(l.slug, 0); return ok; });
+    ul.innerHTML = lines.map((l) => {
+      const p = catalog.get(l.slug);
+      return `<li class="flex gap-3 py-4" data-slug="${esc(l.slug)}">
+        <a href="${p.href}" class="h-20 w-20 flex-none overflow-hidden rounded-xl bg-wash">${p.image ? `<img src="${p.image}" alt="" class="h-full w-full object-cover" />` : ""}</a>
+        <div class="min-w-0 flex-1">
+          <a href="${p.href}" class="line-clamp-2 text-[15px] font-semibold text-ink no-underline">${esc(p.name)}</a>
+          ${p.soldOut ? '<p class="text-[13px] font-semibold text-err">품절됐어요. 빼 주세요.</p>' : ""}
+          <div class="mt-2 flex items-center justify-between">
+            <div class="flex items-center rounded-xl border border-line">
+              <button type="button" class="h-9 w-9 text-ink-soft" data-d="-1" aria-label="수량 줄이기">−</button>
+              <span class="num w-8 text-center font-bold">${l.qty}</span>
+              <button type="button" class="h-9 w-9 text-ink-soft" data-d="1" aria-label="수량 늘리기" ${l.qty >= MAX_QTY ? "disabled" : ""}>+</button>
+            </div>
+            <span class="num font-bold">${won(p.price * l.qty)}</span>
+          </div>
+        </div>
+        <button type="button" class="self-start px-1 text-[13px] text-ink-faint" data-remove>삭제</button>
+      </li>`;
+    }).join("");
+    const items = lines.reduce((n, l) => n + catalog.get(l.slug).price * l.qty, 0);
+    const allFree = lines.every((l) => catalog.get(l.slug).freeShipping);
+    const fee = !lines.length || items >= ship.freeOver || allFree ? 0 : ship.base;
+    const empty = lines.length === 0;
+    document.querySelector<HTMLElement>("[data-empty]")!.hidden = !empty;
+    document.querySelector<HTMLElement>("[data-summary]")!.hidden = empty;
+    const go = document.querySelector<HTMLAnchorElement>("[data-checkout]")!;
+    go.hidden = empty;
+    go.classList.toggle("pointer-events-none", lines.some((l) => catalog.get(l.slug).soldOut));
+    go.classList.toggle("opacity-30", lines.some((l) => catalog.get(l.slug).soldOut));
+    document.querySelector("[data-items]")!.textContent = won(items);
+    document.querySelector("[data-ship]")!.textContent = fee ? won(fee) : "무료";
+    document.querySelector("[data-sum]")!.textContent = won(items + fee);
+  }
+
+  document.addEventListener("astro:page-load", () => {
+    const ul = document.querySelector<HTMLElement>("[data-lines]");
+    if (!ul) return;
+    // 장바구니에서 주문하면 '바로 처방 신청'으로 담아 둔 상품은 쓰지 않는다
+    setDirect(null);
+    ul.addEventListener("click", (e) => {
+      const t = e.target as HTMLElement, li = t.closest<HTMLElement>("[data-slug]");
+      if (!li) return;
+      const slug = li.dataset.slug!, cur = readCart().find((l) => l.slug === slug)?.qty ?? 0;
+      if (t.closest("[data-remove]")) setQty(slug, 0);
+      else if (t.closest("[data-d]")) setQty(slug, Math.max(1, cur + Number(t.closest<HTMLElement>("[data-d]")!.dataset.d)));
+      else return;
+      render();
+    });
+    render();
+  });
+</script>

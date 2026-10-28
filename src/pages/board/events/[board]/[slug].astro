@@ -1,0 +1,24 @@
+---
+// 이벤트 글. 주소는 기존 사이트와 같은 /board/events/<게시판 ID>/<글 ID>/ 이다.
+import Base from "../../../../layouts/Base.astro";
+import clinic from "../../../../data/clinic.json";
+import { loadEvents, periodText, EVENT_BOARD_ID, type Event } from "../../../../lib/content";
+
+export async function getStaticPaths() {
+  return (await loadEvents()).map((e) => ({ params: { board: EVENT_BOARD_ID, slug: e.slug }, props: { e } }));
+}
+const { e } = Astro.props as { e: Event };
+---
+<Base title={`${e.name} | ${clinic.name}`} description={e.subtitle || e.summary || e.name} image={e.image ?? undefined} current="EVENT">
+  <article class="wrap max-w-[760px] pt-8">
+    <a href="/board/events/" class="text-[14px] font-semibold text-ink-faint no-underline">이벤트</a>
+    <h1 class="mt-1 text-[26px] font-bold leading-[1.35] sm:text-[32px]">{e.name}</h1>
+    {e.subtitle && <p class="mt-1 text-[16px] text-ink-soft">{e.subtitle}</p>}
+    {periodText(e) && <p class="num mt-2 text-[14px] text-ink-faint">{periodText(e)}</p>}
+    <div class="prose mt-8 text-center" set:html={e.bodyHtml} />
+    <div class="mt-10 flex justify-center gap-2">
+      <a href="/telemedicine/product/" class="btn btn-primary">원내 상품 보기</a>
+      <a href="/telemedicine/reservation/" class="btn btn-secondary">진료 예약</a>
+    </div>
+  </article>
+</Base>

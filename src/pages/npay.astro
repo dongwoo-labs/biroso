@@ -1,0 +1,28 @@
+---
+// 비급여 진료비용 고지(의료법 제45조). 원내 상품(한약) 가격은 Twenty 상품에서 자동으로 채운다.
+// 침·추나 등 시술 비급여 항목은 src/data/npay.json에 한의원이 직접 적는다.
+import Base from "../layouts/Base.astro";
+import clinic from "../data/clinic.json";
+import npay from "../data/npay.json";
+import { loadProducts, wonText } from "../lib/content";
+
+const herbs = (await loadProducts()).filter((p) => p.kind === "PAYMENT");
+---
+<Base title={`비급여 진료 비용 | ${clinic.name}`} description={`${clinic.name} 비급여 진료 비용 안내`}>
+  <section class="wrap max-w-[760px] pt-8">
+    <h1 class="section-title">비급여 진료 비용</h1>
+    <p class="section-sub">의료법 제45조에 따라 비급여 진료 비용을 알려 드려요. 정가 기준이며 이벤트 할인은 각 이벤트 안내를 따라요.</p>
+    {npay.items.length > 0 && (
+      <div class="prose mt-6"><div class="table-wrap"><table>
+        <thead><tr><th>항목</th><th>구분</th><th>비용</th><th>비고</th></tr></thead>
+        <tbody>{npay.items.map((i) => <tr><td>{i.name}</td><td>{i.type}</td><td class="num">{i.price}</td><td>{i.note}</td></tr>)}</tbody>
+      </table></div></div>
+    )}
+    <h2 class="mt-10 text-[18px] font-bold">한약(원내 상품)</h2>
+    <div class="prose mt-3"><div class="table-wrap"><table>
+      <thead><tr><th>처방</th><th>비용(정가)</th></tr></thead>
+      <tbody>{herbs.map((p) => <tr><td>{p.name}</td><td class="num">{wonText(p.regularPrice || p.salePrice)}</td></tr>)}</tbody>
+    </table></div></div>
+    <p class="mt-4 text-[14px] text-ink-faint">{npay.note}</p>
+  </section>
+</Base>

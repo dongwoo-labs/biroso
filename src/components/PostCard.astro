@@ -1,0 +1,13 @@
+---
+import { type Post, postHref } from "../lib/content";
+interface Props { post: Post }
+const { post: p } = Astro.props;
+---
+<a href={postHref(p)} class="group flex gap-4 border-b border-line py-4 no-underline last:border-0">
+  <div class="min-w-0 flex-1">
+    <p class="line-clamp-2 text-[16px] font-bold leading-snug text-ink group-hover:text-brand">{p.name}</p>
+    {p.summary && <p class="mt-1 line-clamp-2 text-[14px] text-ink-soft">{p.summary}</p>}
+    <p class="num mt-1.5 text-[12px] text-ink-faint">{p.publishedOn.replace(/-/g, ".")}</p>
+  </div>
+  {p.image && <img src={p.image} alt="" loading="lazy" decoding="async" class="h-20 w-28 flex-none rounded-xl object-cover sm:h-24 sm:w-36" />}
+</a>

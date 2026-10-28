@@ -1,0 +1,22 @@
+---
+import Base from "../../../layouts/Base.astro";
+import clinic from "../../../data/clinic.json";
+---
+<Base title={`결제 실패 | ${clinic.name}`} description="결제 실패" task bottomBar={false}>
+  <section class="wrap max-w-[560px] pt-16 text-center">
+    <h1 class="section-title">결제가 끝나지 않았어요</h1>
+    <p class="mt-3 text-ink-soft" data-reason>결제가 취소됐어요.</p>
+    <p class="mt-1 text-[14px] text-ink-faint">돈은 빠져나가지 않았어요. 문제가 계속되면 <a href={`tel:${clinic.tel.replace(/-/g, "")}`} class="font-semibold text-brand">{clinic.tel}</a>로 전화 주세요.</p>
+    <div class="mt-8 flex justify-center gap-2">
+      <a href="/checkout/" class="btn btn-primary">다시 결제하기</a>
+      <a href="/cart/" class="btn btn-secondary">장바구니</a>
+    </div>
+  </section>
+</Base>
+<script>
+  document.addEventListener("astro:page-load", () => {
+    const reason = new URLSearchParams(location.search).get("reason");
+    const el = document.querySelector("[data-reason]");
+    if (el && reason) el.textContent = reason;
+  });
+</script>
