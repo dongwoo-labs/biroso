@@ -7,6 +7,13 @@ export class TwentyError extends Error {
   }
 }
 
+// 고유값 필드(isUnique)에 같은 값이 이미 있어 거절된 경우
+export const isDuplicate = (e) => e instanceof TwentyError && [400, 409].includes(e.status) && /duplicate|unique/i.test(e.message);
+
+export class SlotTaken extends Error {
+  constructor(slotKey) { super(`예약 칸이 이미 찼습니다: ${slotKey}`); this.slotKey = slotKey; }
+}
+
 const won = (c) => (c?.amountMicros == null ? null : Math.round(c.amountMicros / 1_000_000));
 export const money = (n) => ({ amountMicros: Math.round(n) * 1_000_000, currencyCode: "KRW" });
 
@@ -78,8 +85,21 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     async createIntake(row) {
       return (await call("POST", "/intakes", row)).data.createIntake;
     },
+    // slotKey가 이미 있으면 SlotTaken을 던진다(고유값 필드라 Twenty가 원자적으로 막는다)
     async createAppointment(row) {
-      return (await call("POST", "/appointments", row)).data.createAppointment;
+      try {
+        return (await call("POST", "/appointments", row)).data.createAppointment;
+      } catch (e) {
+        if (isDuplicate(e)) throw new SlotTaken(row.slotKey);
+        throw e;
+      }
+    },
+    async findAppointmentBySlotKey(slotKey) {
+      const r = await call("GET", `/appointments${q(`slotKey[eq]:"${slotKey}"`, "&limit=1")}`);
+      return r.data.appointments[0] ?? null;
+    },
+    async updateAppointment(id, patch) {
+      await call("PATCH", `/appointments/${id}`, patch);
     },
     // 그 날(한국 시간) 잡혀 있는, 취소되지 않은 예약 시각
     async takenSlots(fromIso, toIso) {

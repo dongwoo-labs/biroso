@@ -5,7 +5,8 @@ import { createHash } from "node:crypto";
 import { createHandler } from "../server/handler.mjs";
 import { priceOrder, isRemote } from "../server/pricing.mjs";
 import { availableSlots, daySlots, weekday } from "../server/slots.mjs";
-import { verifyAuthSignature } from "../server/nicepay.mjs";
+import { verifyAuthSignature, createNicepay, PaymentError } from "../server/nicepay.mjs";
+import { SlotTaken } from "../server/twenty.mjs";
 import { runPurge } from "../server/purge.mjs";
 
 const SHIPPING = { base: 3500, remoteExtra: 2000, freeOver: 100000 };
@@ -40,7 +41,14 @@ function fakeTwenty() {
     async findOrder(no) { return s.orders.find((o) => o.name === no) ?? null; },
     async updateOrder(oid, patch) { Object.assign(s.orders.find((o) => o.id === oid), patch); },
     async createIntake(r) { const i = { id: id("i"), ...r }; s.intakes.push(i); return i; },
-    async createAppointment(r) { const a = { id: id("a"), ...r }; s.appointments.push(a); return a; },
+    // Twenty 고유값 필드처럼 slotKey가 겹치면 거절한다. 동시 요청이 겹치도록 한 박자 쉰다.
+    async createAppointment(r) {
+      await new Promise((ok) => setTimeout(ok, 5));
+      if (r.slotKey && s.appointments.some((a) => a.slotKey === r.slotKey)) throw new SlotTaken(r.slotKey);
+      const a = { id: id("a"), ...r }; s.appointments.push(a); return a;
+    },
+    async findAppointmentBySlotKey(k) { return s.appointments.find((a) => a.slotKey === k) ?? null; },
+    async updateAppointment(aid, patch) { Object.assign(s.appointments.find((a) => a.id === aid), patch); },
     async takenSlots(from, to) { return s.appointments.filter((a) => a.scheduledAt >= from && a.scheduledAt < to && a.appointmentStatus !== "CANCELLED").map((a) => a.scheduledAt); },
     async closures(from, to) { return s.closures.filter((d) => d >= from && d <= to); },
     async listStalePendingOrders(before) { return s.orders.filter((o) => o.orderStatus === "PENDING" && o.createdAt < before); },
@@ -55,18 +63,19 @@ function fakeTwenty() {
 }
 
 const SECRET = "test-secret";
-function fakeNicepay({ approveFails = false } = {}) {
+function fakeNicepay({ approveFails = false, approveError = null, netCancelCode = "0000" } = {}) {
   const calls = [];
   return {
     calls, clientId: "S2_test",
     verify: (f) => verifyAuthSignature(f, SECRET),
-    async approve(tid, amount) {
+    async approve(tid, amount, orderId) {
       calls.push(["approve", tid, amount]);
-      if (approveFails) { const { PaymentError } = await import("../server/nicepay.mjs"); throw new PaymentError("approve_failed", "한도 초과"); }
-      return { resultCode: "0000", status: "paid", tid, amount, paidAt: "2026-10-29T10:00:00.000+0900", payMethod: "card", receiptUrl: "https://npg.nicepay.co.kr/receipt" };
+      if (approveFails) throw new PaymentError("approve_failed", "한도 초과");
+      if (approveError) throw approveError;
+      return { resultCode: "0000", status: "paid", tid, amount, orderId, paidAt: "2026-10-29T10:00:00.000+0900", payMethod: "card", receiptUrl: "https://npg.nicepay.co.kr/receipt" };
     },
     async cancel(tid, orderId, reason, amt) { calls.push(["cancel", tid, orderId, reason, amt]); return { resultCode: "0000", balanceAmt: 0 }; },
-    async netCancel(orderId) { calls.push(["netcancel", orderId]); return {}; },
+    async netCancel(orderId) { calls.push(["netcancel", orderId]); return { resultCode: netCancelCode }; },
   };
 }
 
@@ -175,6 +184,42 @@ test("주문 기록이 실패하면 승인된 결제를 자동으로 취소한�
   }, { twenty });
 });
 
+test("승인 응답의 주문번호가 다르면(같은 금액 주문 바꿔치기) 승인한 결제를 취소하고 기록하지 않는다", async () => {
+  const sent = [];
+  const fetchImpl = async (url, init) => {
+    sent.push([url, JSON.parse(init.body)]);
+    const body = url.endsWith("/cancel") ? { resultCode: "0000" } : { resultCode: "0000", status: "paid", tid: "TA", amount: 46500, orderId: "BR_A" };
+    return { status: 200, text: async () => JSON.stringify(body) };
+  };
+  const np = createNicepay({ clientId: "S2_test", secretKey: SECRET, apiUrl: "https://x" }, fetchImpl);
+  await assert.rejects(np.approve("TA", 46500, "BR_B"), (e) => e instanceof PaymentError && e.code === "order_mismatch");
+  assert.equal(sent[1][0], "https://x/v1/payments/TA/cancel");
+  assert.equal(sent[1][1].orderId, "BR_A");
+  assert.equal((await np.approve("TA", 46500, "BR_A")).orderId, "BR_A");
+
+  const mismatch = new PaymentError("order_mismatch", "결제 정보가 주문과 달라요. 결제는 취소했어요.");
+  await withServer(async (base, t, fake) => {
+    const body = await (await postJson(base, "/api/v1/orders", order())).json();
+    const res = await returnForm(base, { authResultCode: "0000", tid: "TA", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "a", signature: sign("a", 46500) });
+    assert.match(res.headers.get("location"), /\/order\/fail\//);
+    assert.equal(t.s.orders[0].orderStatus, "PENDING");
+    assert.ok(!fake.calls.some((c) => c[0] === "netcancel"));
+  }, { nicepay: fakeNicepay({ approveError: mismatch }) });
+});
+
+test("승인 응답을 읽지 못하면 망취소하고, 망취소도 실패하면 연락을 안내한다", async () => {
+  for (const [code, want] of [["0000", /취소했어요/], ["9999", /연락/]]) {
+    await withServer(async (base, t, np) => {
+      const body = await (await postJson(base, "/api/v1/orders", order())).json();
+      const res = await returnForm(base, { authResultCode: "0000", tid: "T5", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "a", signature: sign("a", 46500) });
+      const reason = new URL(res.headers.get("location")).searchParams.get("reason");
+      assert.match(reason, want);
+      assert.deepEqual(np.calls.at(-1), ["netcancel", body.orderNo]);
+      assert.equal(t.s.orders[0].orderStatus, "PENDING");
+    }, { nicepay: fakeNicepay({ approveError: new PaymentError("bad_response", "나이스페이 응답을 읽지 못했어요 (502)"), netCancelCode: code }) });
+  }
+});
+
 test("필수 동의·주소가 없으면 받지 않고, 방문 수령은 주소 없이 받는다", () => withServer(async (base) => {
   const noSensitive = await postJson(base, "/api/v1/orders", order({ consents: { privacy: true, sensitive: false, terms: true } }));
   assert.equal(noSensitive.status, 422);
@@ -200,6 +245,16 @@ test("환불: 처방 확정 전에는 전액 취소, 확정 뒤에는 막는다"
   assert.equal(ok.status, 200);
   assert.equal(t.s.orders[0].orderStatus, "REFUNDED");
   assert.deepEqual(np.calls.at(-1).slice(0, 4), ["cancel", "T2", body.orderNo, "고객 변심"]);
+  assert.equal(np.calls.at(-1)[4], undefined); // 항상 전액
+}));
+
+test("환불: 부분 금액은 받지 않는다", () => withServer(async (base, t, np) => {
+  const body = await (await postJson(base, "/api/v1/orders", order())).json();
+  await returnForm(base, { authResultCode: "0000", tid: "T3", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "x", signature: sign("x", 46500) });
+  const res = await fetch(`${base}/api/v1/orders/refund`, { method: "POST", headers: { Authorization: "Bearer admin", "Content-Type": "application/json" }, body: JSON.stringify({ orderNo: body.orderNo, amount: 10000 }) });
+  assert.equal(res.status, 422);
+  assert.equal(t.s.orders[0].orderStatus, "PAID");
+  assert.ok(!np.calls.some((c) => c[0] === "cancel"));
 }));
 
 test("진료 예약: 가능한 칸만 받고, 같은 칸은 두 번 받지 않는다", () => withServer(async (base, t) => {
@@ -219,6 +274,16 @@ test("진료 예약: 가능한 칸만 받고, 같은 칸은 두 번 받지 않�
   assert.equal(t.s.people[0].consentMarketing, true);
   assert.equal((await postJson(base, "/api/v1/appointments", appt({ phone: "010-2222-3333" }))).status, 409);
   assert.equal((await postJson(base, "/api/v1/appointments", appt({ product: "chuna", time: "16:00" }))).status, 422);
+
+  // 같은 칸에 동시에 들어와도 하나만 받는다
+  const both = await Promise.all(["010-3333-4444", "010-5555-7777"].map((phone) => postJson(base, "/api/v1/appointments", appt({ phone, time: "17:00" }))));
+  assert.deepEqual(both.map((r) => r.status).sort(), [201, 409]);
+  assert.equal(t.s.appointments.filter((a) => a.slotKey?.startsWith(new Date(`${date}T17:00:00+09:00`).toISOString())).length, 1);
+
+  // 취소된 예약의 자리는 다시 잡을 수 있다(직원이 Twenty에서 취소해도 자리 키는 남아 있다)
+  t.s.appointments[0].appointmentStatus = "CANCELLED";
+  assert.equal((await postJson(base, "/api/v1/appointments", appt({ phone: "010-2222-3333" }))).status, 201);
+  assert.match(t.s.appointments[0].slotKey, /^released:/);
 }));
 
 test("파기: 결제하지 않은 주문과 그 문진·고객, 보유기간 지난 문진을 지운다", async () => {

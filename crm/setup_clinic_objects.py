@@ -105,6 +105,8 @@ OBJECTS = [
         ("product", "RELATION", "진료 상품", {"target": "product", "inverse": "appointments", "inverseLabel": "진료 예약"}),
         ("method", "SELECT", "진료 방법", {"options": opts(("PHONE", "전화 진료"), ("VISIT", "한의원 진료"))}),
         ("scheduledAt", "DATE_TIME", "예약 일시", {}),
+        # 예약 자리 키(<예약 시각>#<번호>). 고유값이라 같은 자리를 동시에 두 번 잡지 못한다. 홈페이지가 채우니 직원은 비워 둔다.
+        ("slotKey", "TEXT", "예약 자리(자동)", {"isUnique": True}),
         ("appointmentStatus", "SELECT", "예약 상태", {"options": opts(("REQUESTED", "예약 신청"), ("CONFIRMED", "확정"), ("DONE", "진료 완료"), ("NO_SHOW", "노쇼"), ("CANCELLED", "취소")), "defaultValue": "'REQUESTED'"}),
     ]),
     # 문진(건강정보 = 개인정보보호법 제23조 민감정보). 고객·주문과 따로 둬서 역할로 열람을 막을 수 있게 한다.
@@ -219,6 +221,8 @@ def create_field(obj_id, name, ftype, label, extra, ids):
         field["options"] = extra["options"]
     if "defaultValue" in extra:
         field["defaultValue"] = extra["defaultValue"]
+    if extra.get("isUnique"):
+        field["isUnique"] = True
     if ftype == "RELATION":
         field["relationCreationPayload"] = {
             "type": "MANY_TO_ONE", "targetObjectMetadataId": ids[extra["target"]][0],
