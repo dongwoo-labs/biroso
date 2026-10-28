@@ -1,0 +1,98 @@
+---
+import Base from "../layouts/Base.astro";
+import ProductCard from "../components/ProductCard.astro";
+import EventCard from "../components/EventCard.astro";
+import ReservationCard from "../components/ReservationCard.astro";
+import PostCard from "../components/PostCard.astro";
+import { ChevronRight, Clock, MapPin } from "@lucide/astro";
+import clinic from "../data/clinic.json";
+import { loadProducts, loadEvents, loadPosts, boardHref } from "../lib/content";
+
+const products = await loadProducts();
+const shop = products.filter((p) => p.kind === "PAYMENT");
+const reservations = products.filter((p) => p.kind === "RESERVATION");
+const events = (await loadEvents()).slice(0, 4);
+const posts = await loadPosts();
+const intro = posts.filter((p) => p.board === "START");
+const columns = posts.filter((p) => p.board === "COLUMN").slice(0, 3);
+const today = new Date().toISOString().slice(0, 10);
+const jsonLd = [{
+  "@type": "MedicalClinic", name: clinic.name, telephone: clinic.tel, address: { "@type": "PostalAddress", streetAddress: clinic.address, addressCountry: "KR" },
+  medicalSpecialty: "한의원", url: Astro.site?.href,
+  openingHoursSpecification: clinic.hours.map((h) => ({ "@type": "OpeningHoursSpecification", dayOfWeek: h.days.map((d) => ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d]), opens: h.open, closes: h.close })),
+}];
+---
+<Base title={`${clinic.name} | 온라인 진료·처방, 다이어트 한약`} description={clinic.introduction} current="" jsonLd={jsonLd}>
+  <section class="wrap pt-5">
+    <!-- 배너 그림에 글씨가 들어 있어 그림 위에 글을 얹지 않고 나란히 둔다 -->
+    <div class="grid overflow-hidden rounded-[28px] bg-brand-deep md:grid-cols-[1fr_1.15fr]">
+      <div class="px-6 py-10 text-white sm:px-10 md:py-14">
+        <p class="text-[15px] font-semibold text-white/75">{clinic.name} 온라인 진료 · 처방</p>
+        <h1 class="mt-2 text-[28px] font-bold leading-[1.3] sm:text-[36px]">내원 없이 편리하게 시작하는<br />다이어트 한약 상담</h1>
+        <div class="mt-7 flex flex-wrap gap-2">
+          <a href="/telemedicine/product/" class="btn btn-xl bg-white text-brand">원내 상품 보기</a>
+          <a href="/telemedicine/reservation/" class="btn btn-xl bg-white/15 text-white">진료 예약하기</a>
+        </div>
+      </div>
+      <img src="/media/hero.webp" alt="비로소한의원 다이어트 한약" class="aspect-[16/9] h-full w-full object-cover md:aspect-auto" fetchpriority="high" />
+    </div>
+    <ol class="mt-4 grid grid-cols-3 gap-2 text-center text-[13px] font-semibold text-ink-soft sm:text-[15px]">
+      <li class="rounded-2xl bg-wash px-2 py-3"><span class="num block text-brand">1</span>상품 처방 신청</li>
+      <li class="rounded-2xl bg-wash px-2 py-3"><span class="num block text-brand">2</span>원장님 전화 진료</li>
+      <li class="rounded-2xl bg-wash px-2 py-3"><span class="num block text-brand">3</span>맞춤 처방 배송</li>
+    </ol>
+  </section>
+
+  {events.length > 0 && (
+    <section class="wrap mt-14">
+      <div class="flex items-end justify-between"><h2 class="section-title">이벤트</h2><a href="/board/events/" class="flex items-center text-[14px] font-semibold text-ink-faint no-underline">더 보기<ChevronRight size={16} aria-hidden="true" /></a></div>
+      <div class="mt-5 grid gap-6 sm:grid-cols-2">{events.map((e) => <EventCard event={e} ended={Boolean(e.endDate && e.endDate < today)} />)}</div>
+    </section>
+  )}
+
+  <section class="wrap mt-14">
+    <div class="flex items-end justify-between">
+      <div><h2 class="section-title">원내 상품</h2><p class="section-sub">결제하시면 원장님이 직접 전화로 상담하고 처방해 드려요.</p></div>
+      <a href="/telemedicine/product/" class="flex flex-none items-center text-[14px] font-semibold text-ink-faint no-underline">전체<ChevronRight size={16} aria-hidden="true" /></a>
+    </div>
+    <div class="mt-5 grid grid-cols-2 gap-x-3 gap-y-7 sm:grid-cols-4">{shop.slice(0, 8).map((p) => <ProductCard product={p} />)}</div>
+  </section>
+
+  <section class="wrap mt-14">
+    <h2 class="section-title">미루면 큰 병이 됩니다.</h2>
+    <p class="section-sub">어떤 진료를 받으실 수 있는지 확인해 보세요.</p>
+    <div class="mt-5 grid gap-3 md:grid-cols-2">{reservations.map((p) => <ReservationCard product={p} />)}</div>
+  </section>
+
+  {intro.length > 0 && (
+    <section class="wrap mt-14">
+      <div class="flex items-end justify-between"><h2 class="section-title">비로소 시작하기</h2><a href={boardHref("START")} class="flex items-center text-[14px] font-semibold text-ink-faint no-underline">더 보기<ChevronRight size={16} aria-hidden="true" /></a></div>
+      <div class="mt-2">{intro.map((p) => <PostCard post={p} />)}</div>
+    </section>
+  )}
+  {columns.length > 0 && (
+    <section class="wrap mt-10">
+      <div class="flex items-end justify-between"><h2 class="section-title">비로소 질환칼럼</h2><a href={boardHref("COLUMN")} class="flex items-center text-[14px] font-semibold text-ink-faint no-underline">더 보기<ChevronRight size={16} aria-hidden="true" /></a></div>
+      <div class="mt-2">{columns.map((p) => <PostCard post={p} />)}</div>
+    </section>
+  )}
+
+  <section class="wrap mt-14 grid gap-3 md:grid-cols-2">
+    <div class="card p-6">
+      <h2 class="flex items-center gap-2 text-[18px] font-bold"><Clock size={20} class="text-brand" aria-hidden="true" />진료시간</h2>
+      <dl class="mt-3 space-y-1.5 text-[15px]">
+        {clinic.hours.map((h) => <div class="flex justify-between"><dt class="text-ink-soft">{h.label}</dt><dd class="num font-semibold">{h.open} ~ {h.close}</dd></div>)}
+        <div class="flex justify-between"><dt class="text-ink-soft">일요일·공휴일</dt><dd class="font-semibold text-err">휴진</dd></div>
+      </dl>
+    </div>
+    <div class="card p-6">
+      <h2 class="flex items-center gap-2 text-[18px] font-bold"><MapPin size={20} class="text-brand" aria-hidden="true" />오시는 길</h2>
+      <p class="mt-3 text-[15px]">{clinic.address}</p>
+      <p class="mt-1 text-[14px] text-ink-soft">애오개역과 아현역 중간, 아현초 맞은편 노란 벽돌 건물 2층(1층 레인커피)</p>
+      <div class="mt-4 flex gap-2">
+        <a href={clinic.links.naverMap} target="_blank" rel="noopener" class="btn btn-secondary min-h-11 text-[15px]">네이버 지도</a>
+        <a href={boardHref("LOCATION")} class="btn btn-secondary min-h-11 text-[15px]">자세히 보기</a>
+      </div>
+    </div>
+  </section>
+</Base>

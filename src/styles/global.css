@@ -1,0 +1,81 @@
+/* 디자인 토큰. 렌탈ON 랜딩과 같은 구성(토스 TDS 시각 언어: 흰 바탕, 회색 면, 강조색 하나, 큰 라운드, 1px 헤어라인)에
+   비로소한의원 기존 사이트의 브랜드 색(Green 팔레트 primary-500 #296856)을 강조색으로 쓴다. */
+@import "tailwindcss";
+/* Pretendard는 서버에서 직접 제공한다(외부 폰트 서버 호출 없음). */
+@import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --color-ink: #191f28;
+  --color-ink-soft: #4e5968;
+  --color-ink-faint: #8b95a1;
+  --color-line: #e5e8eb;
+  --color-paper: #ffffff;
+  --color-wash: #f2f4f6;
+  --color-wash-weak: #f9fafb;
+  --color-brand: #296856;        /* 기존 사이트 primary-500 */
+  --color-brand-strong: #205a4a; /* primary-600 */
+  --color-brand-wash: #e1f2ec;   /* primary-100 */
+  --color-brand-deep: #1d342d;   /* primary-700, 바닥글 */
+  --color-accent: #f04452;       /* 할인율 강조에만 */
+  --color-ok: #03b26c;
+  --color-err: #f04452;
+  --radius-card: 20px;
+  --ease-toss: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@layer base {
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-ink: #ffffff; --color-ink-soft: #c3c3c6; --color-ink-faint: #7e7e87; --color-line: #3c3c47;
+      --color-paper: #17171c; --color-wash: #2c2c35; --color-wash-weak: #202027;
+      --color-brand: #4f9e8c; --color-brand-strong: #7ec9bb; --color-brand-wash: #1d342d; --color-brand-deep: #0f1f1c;
+      --color-accent: #f04251; --color-ok: #2fca84; --color-err: #ff6b75;
+      color-scheme: dark;
+    }
+  }
+  html { scroll-behavior: smooth; scroll-padding-top: 120px; -webkit-text-size-adjust: 100%; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { @apply bg-paper text-ink font-sans antialiased; font-size: 15px; line-height: 1.5; letter-spacing: -0.005em; word-break: keep-all; overflow-wrap: anywhere; }
+  h1, h2, h3 { text-wrap: balance; letter-spacing: -0.02em; }
+  :focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+}
+
+@layer components {
+  .wrap { @apply mx-auto max-w-[1040px] px-5 sm:px-6; }
+  .btn { @apply relative inline-flex min-h-12 cursor-pointer items-center justify-center gap-1.5 overflow-hidden rounded-[14px] px-5 text-[17px] font-bold no-underline transition-colors duration-200 ease-(--ease-toss) disabled:cursor-not-allowed disabled:opacity-30; }
+  .btn::after { content: ""; position: absolute; inset: 0; background: rgb(0 0 0 / 0.26); opacity: 0; transition: opacity 120ms; pointer-events: none; }
+  .btn:active::after { opacity: 1; }
+  .btn-xl { @apply min-h-14 rounded-2xl; }
+  .btn-primary { @apply bg-brand text-white; }
+  .btn-secondary { @apply bg-wash text-ink; }
+  .btn-weak { @apply bg-brand-wash text-brand; }
+  .field { @apply min-h-12 w-full rounded-xl border border-line bg-wash px-3.5 py-3 text-base text-ink outline-none transition-colors duration-200 placeholder:text-ink-faint focus:border-[1.5px] focus:border-brand focus:bg-paper aria-[invalid=true]:border-[1.5px] aria-[invalid=true]:border-err; }
+  .label { @apply mb-1.5 block text-[14px] font-semibold text-ink-soft; }
+  .chip { @apply inline-flex h-[34px] flex-none cursor-pointer items-center rounded-full border border-line bg-paper px-3.5 text-[15px] font-semibold text-ink-soft no-underline transition-colors duration-200 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:text-paper aria-[current]:border-ink aria-[current]:bg-ink aria-[current]:text-paper; }
+  /* 선택 칸(라디오처럼 쓰는 큰 버튼): 고르면 테두리·글씨가 브랜드 색 */
+  .choice { @apply flex min-h-12 cursor-pointer items-center justify-center rounded-xl border border-line bg-paper px-3 text-[15px] font-semibold text-ink-soft transition-colors has-[:checked]:border-[1.5px] has-[:checked]:border-brand has-[:checked]:bg-brand-wash has-[:checked]:text-brand has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-35; }
+  .section-title { @apply text-[22px] font-bold leading-[1.3] tracking-[-0.02em] sm:text-[28px]; }
+  .section-sub { @apply mt-1.5 text-[15px] text-ink-soft sm:text-[17px]; }
+  .card { @apply rounded-[20px] border border-line bg-paper; }
+  .tab { @apply flex-none border-b-2 border-transparent py-2.5 text-ink-faint no-underline transition-colors duration-200 hover:text-ink aria-[current]:border-ink aria-[current]:text-ink; }
+  .num { font-variant-numeric: tabular-nums; }
+  .error { @apply mt-1.5 text-[13px] font-medium text-err; }
+}
+
+/* 본문(Twenty 리치 텍스트 → 마크다운 → HTML). 기존 사이트처럼 가운데 정렬 홍보 글과 칼럼 글을 함께 소화한다. */
+.prose { @apply text-[16px] leading-[1.75] text-ink; }
+.prose > * + * { margin-top: 0.9em; }
+.prose h1 { @apply mt-10 text-[24px] font-bold leading-[1.35] sm:text-[28px]; }
+.prose h2 { @apply mt-9 text-[21px] font-bold leading-[1.4]; }
+.prose h3 { @apply mt-7 text-[18px] font-bold; }
+.prose img { @apply mx-auto my-4 h-auto max-w-full rounded-2xl; }
+.prose a { @apply font-semibold text-brand underline underline-offset-2; }
+.prose ul { @apply list-disc space-y-1 pl-5; }
+.prose ol { @apply list-decimal space-y-1 pl-5; }
+.prose hr { @apply my-10 border-line; }
+.prose blockquote { @apply rounded-2xl bg-wash px-5 py-4 text-ink-soft; }
+.prose .table-wrap { @apply overflow-x-auto rounded-2xl border border-line; }
+.prose table { @apply w-full min-w-[480px] border-collapse text-[14px]; }
+.prose th { @apply bg-wash px-3 py-2.5 text-left font-semibold text-ink-soft; }
+.prose td { @apply border-t border-line px-3 py-2.5 align-top; }

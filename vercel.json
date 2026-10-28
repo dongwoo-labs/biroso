@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "astro",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "regions": ["icn1"],
+  "functions": {
+    "api/**/*.mjs": {
+      "maxDuration": 15
+    }
+  },
+  "crons": [
+    { "path": "/api/v1/purge", "schedule": "0 19 * * *" },
+    { "path": "/api/cron/rebuild", "schedule": "0 18 * * *" }
+  ]
+}

@@ -1,0 +1,154 @@
+---
+import "../styles/global.css";
+import { ClientRouter } from "astro:transitions";
+import { Phone, ShoppingBag, MessageCircle, CalendarDays, MapPin, Camera, MessagesSquare } from "@lucide/astro";
+import clinic from "../data/clinic.json";
+import { BOARDS, boardHref } from "../lib/content";
+
+// current: 지금 메뉴(PRODUCT, EVENT, RESERVATION, 게시판 값, 또는 ""). 메뉴 탭에 밑줄이 간다.
+// bottomBar: 모바일 하단 고정 버튼(전화·카톡·진료 예약). 상세·주문서처럼 자기 버튼이 있는 페이지는 끈다.
+// task: 결제 결과처럼 링크로만 들어오는 화면. 검색에서 빼고 메뉴를 숨긴다.
+interface Props {
+  title: string; description: string; current?: string; bottomBar?: boolean; task?: boolean;
+  image?: string; jsonLd?: Record<string, unknown>[];
+}
+const { title, description, current, bottomBar = true, task = false, image, jsonLd = [] } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const ogImage = new URL(image ?? "/media/hero.webp", Astro.site).href;
+// 실제 운영 전(샘플 배포)에는 검색에 노출하지 않고 상단에 표시한다
+const sample = import.meta.env.PROD && import.meta.env.PUBLIC_LIVE !== "1";
+const naverVerify = import.meta.env.PUBLIC_NAVER_SITE_VERIFICATION;
+const googleVerify = import.meta.env.PUBLIC_GOOGLE_SITE_VERIFICATION;
+const ga4 = import.meta.env.PUBLIC_GA4_ID;
+const tel = clinic.tel.replace(/-/g, "");
+const menu = [
+  { key: "PRODUCT", label: "원내 상품", href: "/telemedicine/product/" },
+  { key: "EVENT", label: "이벤트", href: "/board/events/" },
+  { key: "RESERVATION", label: "진료 예약", href: "/telemedicine/reservation/" },
+  ...Object.entries(BOARDS).map(([key, b]) => ({ key, label: b.name, href: boardHref(key) })),
+];
+const quick = [
+  { label: "네이버 예약", href: clinic.links.naverBooking, icon: CalendarDays },
+  { label: "카톡 상담", href: clinic.links.kakaoChat, icon: MessageCircle },
+  { label: "네이버 톡톡", href: clinic.links.naverTalk, icon: MessagesSquare },
+  { label: "인스타그램", href: clinic.links.instagram, icon: Camera },
+  { label: "네이버 지도", href: clinic.links.naverMap, icon: MapPin },
+  { label: "전화 상담", href: `tel:${tel}`, icon: Phone },
+].filter((q) => q.href);
+---
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  {(sample || task) && <meta name="robots" content="noindex, nofollow" />}
+  <link rel="canonical" href={canonical} />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content={clinic.name} />
+  <meta property="og:locale" content="ko_KR" />
+  <meta property="og:url" content={canonical} />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:image" content={ogImage} />
+  <meta name="twitter:card" content="summary_large_image" />
+  {naverVerify && <meta name="naver-site-verification" content={naverVerify} />}
+  {googleVerify && <meta name="google-site-verification" content={googleVerify} />}
+  {jsonLd.map((d) => <script type="application/ld+json" set:html={JSON.stringify({ "@context": "https://schema.org", ...d })} />)}
+  <ClientRouter />
+  {ga4 && (
+    <>
+      <script async src={`https://www.googletagmanager.com/gtag/js?id=${ga4}`}></script>
+      <script is:inline define:vars={{ ga4 }}>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag("js", new Date());
+        gtag("config", ga4);
+      </script>
+    </>
+  )}
+</head>
+<body>
+  {sample && <p class="bg-wash py-2 text-center text-[13px] text-ink-soft">시범 사이트예요. 실제 운영 전이라 검색에 노출되지 않아요.</p>}
+  <header class="sticky top-0 z-20 border-b border-line bg-paper/95 backdrop-blur">
+    <div class="wrap flex h-14 items-center justify-between gap-4">
+      <a href="/" class="text-[20px] font-bold tracking-[-0.02em] text-brand no-underline">{clinic.name}</a>
+      <div class="flex items-center gap-1">
+        <a href={`tel:${tel}`} class="num hidden h-10 items-center gap-1.5 rounded-xl px-3 text-[15px] font-bold text-ink no-underline transition-colors hover:bg-wash sm:inline-flex">
+          <Phone size={18} aria-hidden="true" />{clinic.tel}
+        </a>
+        <a href="/cart/" class="relative inline-flex h-10 w-10 items-center justify-center rounded-xl text-ink transition-colors hover:bg-wash" aria-label="장바구니">
+          <ShoppingBag size={22} aria-hidden="true" />
+          <span class="num absolute right-0.5 top-0.5 grid min-w-[18px] place-items-center rounded-full bg-brand px-1 text-[11px] font-bold leading-[18px] text-white" data-cart-badge hidden></span>
+        </a>
+      </div>
+    </div>
+    {!task && (
+      <nav aria-label="메뉴" class="wrap -mb-px flex gap-5 overflow-x-auto text-[15px] font-semibold [scrollbar-width:none]">
+        <a href="/" aria-current={current === "" ? "page" : undefined} class="tab">홈</a>
+        {menu.map((m) => <a href={m.href} aria-current={current === m.key ? "page" : undefined} class="tab">{m.label}</a>)}
+      </nav>
+    )}
+  </header>
+
+  <main class:list={[bottomBar && !task && "pb-24 md:pb-0"]}><slot /></main>
+
+  {!task && (
+    <aside aria-label="빠른 상담" class="fixed right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-1 rounded-2xl border border-line bg-paper p-1.5 lg:flex" transition:persist>
+      {quick.map((q) => (
+        <a href={q.href} target={q.href.startsWith("tel:") ? undefined : "_blank"} rel="noopener" class="flex w-[72px] flex-col items-center gap-1 rounded-xl px-1 py-2 text-center text-[11px] font-semibold text-ink-soft no-underline transition-colors hover:bg-wash hover:text-brand">
+          <q.icon size={20} aria-hidden="true" />{q.label}
+        </a>
+      ))}
+    </aside>
+  )}
+
+  <footer class="mt-20 bg-brand-deep pb-32 pt-10 text-[13px] text-white/60 md:pb-12">
+    <div class="wrap space-y-1.5">
+      <p class="pb-2 text-[17px] font-bold tracking-[-0.02em] text-white">{clinic.name}</p>
+      <p class="flex flex-wrap gap-x-4 pb-1 text-white/80">
+        <a href="/faq/" class="text-inherit">자주 묻는 질문</a>
+        <a href="/terms/" class="text-inherit">이용약관</a>
+        <a href="/privacy/" class="font-bold text-white">개인정보 처리방침</a>
+        <a href="/npay/" class="text-inherit">비급여 진료 비용</a>
+      </p>
+      <p>상호명 {clinic.name} · 대표 {clinic.ceo} · {clinic.address}</p>
+      <p>전화번호 <a href={`tel:${tel}`} class="num text-inherit">{clinic.tel}</a> · 사업자등록번호 {clinic.bizNo}{clinic.mailOrderNo && ` · 통신판매업신고 ${clinic.mailOrderNo}`}</p>
+      <p>진료시간 {clinic.hours.map((h) => `${h.label} ${h.open}~${h.close}`).join(" · ")} · {clinic.closedLabel}</p>
+      <div class="pt-3 leading-relaxed">
+        <p>{clinic.medicineNotice}</p>
+        <p>다음과 같은 증상이 나타날 경우, 복약을 멈추고 한의사와 상담이 필요합니다.</p>
+        {clinic.stopSigns.map((s) => <p>- {s}</p>)}
+      </div>
+      <p class="pt-3">Copyright {new Date().getFullYear()}. {clinic.name}. All rights reserved.</p>
+    </div>
+  </footer>
+
+  {bottomBar && !task && (
+    <div class="pointer-events-none fixed inset-x-0 bottom-0 z-20 md:hidden" transition:persist>
+      <div class="h-6 bg-linear-to-t from-paper to-transparent"></div>
+      <nav aria-label="빠른 상담" class="pointer-events-auto grid grid-cols-[56px_56px_1fr] gap-2 bg-paper px-4 pb-[max(12px,env(safe-area-inset-bottom))]">
+        <a href={`tel:${tel}`} class="btn btn-secondary btn-xl px-0" aria-label={`전화 상담 ${clinic.tel}`}><Phone size={22} aria-hidden="true" /></a>
+        <a href={clinic.links.kakaoChat} target="_blank" rel="noopener" class="btn btn-secondary btn-xl px-0" aria-label="카카오톡 상담"><MessageCircle size={22} aria-hidden="true" /></a>
+        <a href="/telemedicine/reservation/" class="btn btn-primary btn-xl">진료 예약하기</a>
+      </nav>
+    </div>
+  )}
+
+  <script>
+    import { captureAttribution } from "../lib/attribution";
+    import { refreshCartBadge } from "../lib/cart";
+    document.addEventListener("astro:page-load", () => {
+      captureAttribution();
+      refreshCartBadge();
+      // 모바일에서 메뉴 탭이 넘칠 때 지금 메뉴가 보이도록 탭 줄만 옮긴다
+      const tab = document.querySelector<HTMLElement>('nav[aria-label="메뉴"] [aria-current="page"]');
+      const bar = tab?.parentElement;
+      if (tab && bar && bar.scrollWidth > bar.clientWidth) bar.scrollLeft = tab.offsetLeft - (bar.clientWidth - tab.offsetWidth) / 2;
+    });
+  </script>
+</body>
+</html>

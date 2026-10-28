@@ -1,0 +1,34 @@
+---
+import Base from "../../../layouts/Base.astro";
+import clinic from "../../../data/clinic.json";
+---
+<Base title={`결제 완료 | ${clinic.name}`} description="결제 완료" task bottomBar={false}>
+  <section class="wrap max-w-[560px] pt-16 text-center">
+    <p class="text-[44px]" aria-hidden="true">✓</p>
+    <h1 class="section-title mt-2">결제가 끝났어요</h1>
+    <p class="num mt-2 text-ink-soft">주문번호 <span class="font-bold text-ink" data-no></span></p>
+    <ol class="mt-8 space-y-2 text-left text-[15px]">
+      <li class="rounded-2xl bg-wash p-4"><b class="text-brand">1. 원장님 전화 진료</b><br />진료시간 안에 {clinic.tel}로 전화드려요. 받지 못하셨다면 편하실 때 전화 주세요.</li>
+      <li class="rounded-2xl bg-wash p-4"><b class="text-brand">2. 처방 확정·조제</b><br />진료 결과에 맞춰 처방하고, 처방이 어려우면 전액 환불해 드려요.</li>
+      <li class="rounded-2xl bg-wash p-4"><b class="text-brand">3. 발송</b><br />처방 완료 후 2~3일 안에 보내드려요(주말·공휴일 제외).</li>
+    </ol>
+    <p class="mt-6 text-[14px] text-ink-faint">처방 확정 전까지 취소할 수 있어요. 취소는 {clinic.tel}로 연락 주세요.</p>
+    <a href="/" class="btn btn-secondary mt-6">홈으로</a>
+  </section>
+</Base>
+<script>
+  import { clearCart, setDirect } from "../../../lib/cart";
+  document.addEventListener("astro:page-load", () => {
+    const no = new URLSearchParams(location.search).get("no") ?? "";
+    const el = document.querySelector("[data-no]");
+    if (el) el.textContent = no;
+    try {
+      const paying = JSON.parse(sessionStorage.getItem("biroso_paying") ?? "null");
+      if (paying?.orderNo === no) {
+        if (!paying.direct) clearCart();
+        setDirect(null);
+        sessionStorage.removeItem("biroso_paying");
+      }
+    } catch {}
+  });
+</script>

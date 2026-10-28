@@ -1,0 +1,16 @@
+---
+import Base from "../../layouts/Base.astro";
+import ReservationCard from "../../components/ReservationCard.astro";
+import clinic from "../../data/clinic.json";
+import { loadProducts } from "../../lib/content";
+
+const items = (await loadProducts()).filter((p) => p.kind === "RESERVATION");
+---
+<Base title={`진료 예약 | ${clinic.name}`} description="전화 진료와 한의원 진료를 예약하세요. 다이어트·보약·상비약·맞춤 한약 처방 상담, 침·추나·교통사고 치료." current="RESERVATION">
+  <section class="wrap pt-8">
+    <h1 class="section-title">진료 예약</h1>
+    <p class="section-sub">진료 상품을 고르고 원하는 날짜와 시간을 정해 주세요.</p>
+    <div class="mt-6 grid gap-3 md:grid-cols-2">{items.map((p) => <ReservationCard product={p} />)}</div>
+    <p class="mt-6 text-[14px] text-ink-soft">네이버 예약으로도 예약할 수 있어요. <a href={clinic.links.naverBooking} target="_blank" rel="noopener" class="font-semibold text-brand">네이버 예약 열기</a></p>
+  </section>
+</Base>

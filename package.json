@@ -1,0 +1,32 @@
+{
+  "name": "@biroso/site",
+  "version": "0.1.0",
+  "private": true,
+  "description": "비로소한의원 홈페이지: Astro 정적 사이트 + Vercel 함수(주문·결제·진료 예약) + Twenty CRM",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "import-site": "node scripts/import-site.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@lucide/astro": "^1.57.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "astro": "7.3.8",
+    "libphonenumber-js": "1.13.15",
+    "marked": "^15.0.12",
+    "pretendard": "^1.3.9",
+    "tailwindcss": "^4.3.3",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.5",
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2"
+  }
+}

@@ -1,0 +1,18 @@
+---
+import Base from "../../../layouts/Base.astro";
+import EventCard from "../../../components/EventCard.astro";
+import clinic from "../../../data/clinic.json";
+import { loadEvents } from "../../../lib/content";
+
+const today = new Date().toISOString().slice(0, 10);
+const events = await loadEvents();
+const ended = (e: { endDate: string | null }) => Boolean(e.endDate && e.endDate < today);
+const ordered = [...events.filter((e) => !ended(e)), ...events.filter(ended)];
+---
+<Base title={`이벤트 | ${clinic.name}`} description={`${clinic.name} 이벤트와 처방 혜택을 안내해요.`} current="EVENT">
+  <section class="wrap pt-8">
+    <h1 class="section-title">이벤트</h1>
+    {ordered.length ? <div class="mt-6 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">{ordered.map((e) => <EventCard event={e} ended={ended(e)} />)}</div>
+      : <p class="py-20 text-center text-ink-faint">진행 중인 이벤트가 없어요.</p>}
+  </section>
+</Base>

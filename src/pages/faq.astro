@@ -1,0 +1,21 @@
+---
+import Base from "../layouts/Base.astro";
+import clinic from "../data/clinic.json";
+import { loadFaqs } from "../lib/content";
+
+const faqs = await loadFaqs();
+const jsonLd = [{ "@type": "FAQPage", mainEntity: faqs.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) }];
+---
+<Base title={`자주 묻는 질문 | ${clinic.name}`} description={`${clinic.name} 진료시간, 위치, 예약 방법을 안내해요.`} jsonLd={jsonLd}>
+  <section class="wrap max-w-[760px] pt-8">
+    <h1 class="section-title">자주 묻는 질문</h1>
+    <div class="mt-6 space-y-2">
+      {faqs.map((f) => (
+        <details class="card px-5 py-4">
+          <summary class="cursor-pointer list-none text-[16px] font-bold">{f.q}</summary>
+          <p class="mt-2 whitespace-pre-line text-[15px] text-ink-soft">{f.a}</p>
+        </details>
+      ))}
+    </div>
+  </section>
+</Base>

@@ -1,0 +1,61 @@
+---
+import Base from "../../layouts/Base.astro";
+import ProductCard from "../../components/ProductCard.astro";
+import clinic from "../../data/clinic.json";
+import { loadProducts, CATEGORY, renderMarkdown } from "../../lib/content";
+
+const products = (await loadProducts()).filter((p) => p.kind === "PAYMENT");
+const categories = [...new Set(products.map((p) => p.category))];
+const policies = [
+  ["배송 안내", clinic.policies.shipping], ["주문 취소 안내", clinic.policies.order], ["교환/반품 안내", clinic.policies.return],
+] as const;
+---
+<Base title={`원내 상품 | ${clinic.name}`} description="상품을 결제하시면 원장님이 직접 전화 상담을 통해 안전하게 처방해 드립니다." current="PRODUCT">
+  <section class="wrap pt-8">
+    <h1 class="section-title">원내 상품</h1>
+    <p class="section-sub">상품을 결제하시면 원장님이 직접 전화 상담을 통해 안전하게 처방해 드려요.</p>
+    <ol class="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[14px] font-semibold text-ink-soft">
+      <li><span class="text-brand">❶</span> 상품 처방 신청</li><li><span class="text-brand">❷</span> 원장님 비대면 진료</li><li><span class="text-brand">❸</span> 맞춤 처방 상품 배송</li>
+    </ol>
+    <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex gap-2 overflow-x-auto [scrollbar-width:none]" role="group" aria-label="분류">
+        <button type="button" class="chip" aria-pressed="true" data-cat="">전체</button>
+        {categories.map((c) => <button type="button" class="chip" aria-pressed="false" data-cat={c}>{CATEGORY[c] ?? c}</button>)}
+      </div>
+      <input type="search" class="field min-h-10 py-2 sm:max-w-60" placeholder="상품 검색" aria-label="상품 검색" data-search />
+    </div>
+    <ul class="mt-6 grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 lg:grid-cols-4" data-list>
+      {products.map((p) => <li data-cat={p.category} data-name={p.name}><ProductCard product={p} /></li>)}
+    </ul>
+    <p class="py-16 text-center text-ink-faint" data-empty hidden>찾는 상품이 없어요.</p>
+  </section>
+  <section class="wrap mt-16 space-y-2">
+    {policies.map(([title, md]) => (
+      <details class="card group px-5 py-4">
+        <summary class="cursor-pointer list-none text-[16px] font-bold">{title}</summary>
+        <div class="prose mt-3 text-[14px]" set:html={renderMarkdown(md)} />
+      </details>
+    ))}
+  </section>
+</Base>
+<script>
+  document.addEventListener("astro:page-load", () => {
+    const list = document.querySelector("[data-list]");
+    if (!list) return;
+    let cat = "", q = "";
+    const apply = () => {
+      let shown = 0;
+      list.querySelectorAll<HTMLElement>("li").forEach((li) => {
+        const ok = (!cat || li.dataset.cat === cat) && (!q || (li.dataset.name ?? "").toLowerCase().includes(q));
+        li.hidden = !ok; if (ok) shown++;
+      });
+      document.querySelector<HTMLElement>("[data-empty]")!.hidden = shown > 0;
+    };
+    document.querySelectorAll<HTMLButtonElement>("[data-cat]:is(button)").forEach((b) => b.addEventListener("click", () => {
+      cat = b.dataset.cat ?? "";
+      document.querySelectorAll("[data-cat]:is(button)").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      apply();
+    }));
+    document.querySelector<HTMLInputElement>("[data-search]")?.addEventListener("input", (e) => { q = (e.target as HTMLInputElement).value.trim().toLowerCase(); apply(); });
+  });
+</script>

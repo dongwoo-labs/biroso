@@ -1,0 +1,22 @@
+---
+import { type Product, productHref } from "../lib/content";
+import { ChevronRight } from "@lucide/astro";
+interface Props { product: Product }
+const { product: p } = Astro.props;
+// 원본 이름의 "[비대면 가능]" 머리말은 배지로 따로 보여 준다
+const name = p.name.replace(/^\[비대면 가능\]\s*/, "");
+---
+<a href={productHref(p)} class="card flex items-center gap-4 p-3 no-underline transition-colors hover:bg-wash-weak">
+  <div class="h-20 w-20 flex-none overflow-hidden rounded-xl bg-wash">
+    {p.image && <img src={p.image} alt="" loading="lazy" decoding="async" class="h-full w-full object-cover" />}
+  </div>
+  <div class="min-w-0 flex-1">
+    <p class="flex flex-wrap gap-1.5 text-[12px] font-semibold">
+      {p.telemedicine && <span class="rounded-md bg-brand-wash px-1.5 py-0.5 text-brand">비대면 가능</span>}
+      {p.inPerson && <span class="rounded-md bg-wash px-1.5 py-0.5 text-ink-soft">내원 진료</span>}
+    </p>
+    <p class="mt-1 text-[16px] font-bold leading-snug text-ink">{name}</p>
+    {p.summary && <p class="mt-0.5 line-clamp-2 text-[14px] text-ink-soft">{p.summary}</p>}
+  </div>
+  <ChevronRight size={20} class="flex-none text-ink-faint" aria-hidden="true" />
+</a>

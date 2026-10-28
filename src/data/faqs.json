@@ -1,0 +1,30 @@
+{
+  "asOf": "2026-10-29",
+  "source": "https://biroso.kmdclinic.co.kr",
+  "items": [
+    {
+      "name": "진료시간이 어떻게 되나요?",
+      "answer": "월, 화, 목, 금 10:30~20:00, 수 10:00~15:00, 토 10:00~13:30",
+      "sortOrder": 0,
+      "published": true
+    },
+    {
+      "name": "휴진일은 언제인가요?",
+      "answer": "일요일은 휴진입니다.",
+      "sortOrder": 1,
+      "published": true
+    },
+    {
+      "name": "위치가 어디인가요?",
+      "answer": "서울 마포구 굴레방로 9-1 2층",
+      "sortOrder": 2,
+      "published": true
+    },
+    {
+      "name": "예약·문의는 어떻게 하나요?",
+      "answer": "02-2039-0520으로 문의해 주세요.",
+      "sortOrder": 3,
+      "published": true
+    }
+  ]
+}

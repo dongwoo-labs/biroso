@@ -1,0 +1,32 @@
+---
+// 게시판 글. 주소는 기존 사이트와 같은 /board/category-N/<게시판 ID>/<글 ID>/ 이다.
+import Base from "../../../../layouts/Base.astro";
+import PostCard from "../../../../components/PostCard.astro";
+import clinic from "../../../../data/clinic.json";
+import { loadPosts, BOARDS, boardHref, type Post } from "../../../../lib/content";
+
+export async function getStaticPaths() {
+  const posts = await loadPosts();
+  return posts.filter((p) => BOARDS[p.board]).map((p) => ({
+    params: { category: BOARDS[p.board].path, board: BOARDS[p.board].id, slug: p.slug },
+    props: { p, others: posts.filter((o) => o.board === p.board && o.slug !== p.slug).slice(0, 3) },
+  }));
+}
+const { p, others } = Astro.props as { p: Post; others: Post[] };
+const board = BOARDS[p.board];
+const jsonLd = [{ "@type": "Article", headline: p.name, datePublished: p.publishedOn, author: { "@type": "Organization", name: clinic.name }, image: p.image ? new URL(p.image, Astro.site).href : undefined }];
+---
+<Base title={`${p.name} | ${clinic.name}`} description={p.summary.slice(0, 150) || p.name} image={p.image ?? undefined} current={p.board} jsonLd={jsonLd}>
+  <article class="wrap max-w-[760px] pt-8">
+    <a href={boardHref(p.board)} class="text-[14px] font-semibold text-brand no-underline">{board.name}</a>
+    <h1 class="mt-1 text-[26px] font-bold leading-[1.35] sm:text-[32px]">{p.name}</h1>
+    <p class="num mt-2 text-[14px] text-ink-faint">{p.publishedOn.replace(/-/g, ".")}</p>
+    <div class="prose mt-8" set:html={p.bodyHtml} />
+  </article>
+  {others.length > 0 && (
+    <section class="wrap mt-14 max-w-[760px]">
+      <h2 class="text-[18px] font-bold">'{board.name}' 다른 글</h2>
+      <div class="mt-2">{others.map((o) => <PostCard post={o} />)}</div>
+    </section>
+  )}
+</Base>
