@@ -180,7 +180,8 @@ export async function refundOrder(body, { twenty, nicepay }, now = new Date()) {
     r = await nicepay.cancel(order.pgTid, orderNo, reason, amount, Math.min(amount, taxFreeLeft));
   }
   await twenty.updateOrder(order.id, {
-    orderStatus: full ? "REFUNDED" : "PARTIAL_REFUNDED", refundedAmount: money(already + amount), cancelReason: reason,
+    // 처방 확정·주문 완료 주문의 부분 환불은 상태를 그대로 둔다(다음 환불도 force가 필요하도록). 환불액은 refundedAmount에 쌓인다.
+    orderStatus: full ? "REFUNDED" : ["PRESCRIBED", "DONE"].includes(order.orderStatus) ? order.orderStatus : "PARTIAL_REFUNDED", refundedAmount: money(already + amount), cancelReason: reason,
     ...(full ? { cancelledAt: now.toISOString(), shippingStatus: ["SHIPPED", "DELIVERED", "PICKED_UP"].includes(order.shippingStatus) ? order.shippingStatus : "CANCELLED" } : {}),
   });
   return { orderNo, refunded: amount, refundedTotal: already + amount, remaining: remaining - amount, balance: r.balanceAmt };

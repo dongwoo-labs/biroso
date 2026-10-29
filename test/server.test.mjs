@@ -294,6 +294,18 @@ test("환불: 일부만 환불하면 부분 환불로 두고, 남은 금액 안�
   assert.equal(o().refundedAmount.amountMicros, 46500 * 1e6);
 }));
 
+test("환불: 처방 확정 주문은 force로 부분 환불해도 처방 상태를 지켜 다음 환불에 다시 force가 필요하다", () => withServer(async (base, t) => {
+  const body = await (await postJson(base, "/api/v1/orders", order())).json();
+  await returnForm(base, { authResultCode: "0000", tid: "T4", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "x", signature: sign("x", 46500) });
+  const refund = (b) => fetch(`${base}/api/v1/orders/refund`, { method: "POST", headers: { Authorization: "Bearer admin", "Content-Type": "application/json" }, body: JSON.stringify({ orderNo: body.orderNo, ...b }) });
+  t.s.orders[0].orderStatus = "PRESCRIBED";
+  assert.equal((await refund({ amount: 3500 })).status, 409);
+  assert.equal((await refund({ amount: 3500, force: true })).status, 200);
+  assert.equal(t.s.orders[0].orderStatus, "PRESCRIBED");
+  assert.equal(t.s.orders[0].refundedAmount.amountMicros, 3500 * 1e6);
+  assert.equal((await refund({ amount: 3500 })).status, 409);
+}));
+
 test("수壽 매장 상품은 비로소 결제로 주문받지 않는다", () => withServer(async (base) => {
   const r = await postJson(base, "/api/v1/orders", order({ items: [{ slug: "soo", qty: 1 }] }));
   assert.equal(r.status, 409);
