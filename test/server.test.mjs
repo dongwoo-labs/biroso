@@ -197,6 +197,18 @@ test("승인 응답의 주문번호가 다르면(같은 금액 주문 바꿔치�
   assert.equal(sent[1][1].orderId, "BR_A");
   assert.equal((await np.approve("TA", 46500, "BR_A")).orderId, "BR_A");
 
+  // 취소·망취소가 모두 실패하면 '취소했어요'라고 하지 않는다
+  const down = createNicepay({ clientId: "S2_test", secretKey: SECRET, apiUrl: "https://x" }, async (url) => {
+    const body = url.endsWith("/v1/payments/TA") ? { resultCode: "0000", status: "paid", tid: "TA", amount: 46500, orderId: "BR_A" } : { resultCode: "9999", resultMsg: "실패" };
+    return { status: 200, text: async () => JSON.stringify(body) };
+  });
+  await assert.rejects(down.approve("TA", 46500, "BR_B"), (e) => e.code === "unresolved" && e.paidTid === "TA" && /망취소/.test(e.cancelError));
+  await withServer(async (base, t) => {
+    const body = await (await postJson(base, "/api/v1/orders", order())).json();
+    const res = await returnForm(base, { authResultCode: "0000", tid: "TA", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "a", signature: sign("a", 46500) });
+    assert.match(new URL(res.headers.get("location")).searchParams.get("reason"), /연락/);
+  }, { nicepay: fakeNicepay({ approveError: new PaymentError("unresolved", "x") }) });
+
   const mismatch = new PaymentError("order_mismatch", "결제 정보가 주문과 달라요. 결제는 취소했어요.");
   await withServer(async (base, t, fake) => {
     const body = await (await postJson(base, "/api/v1/orders", order())).json();

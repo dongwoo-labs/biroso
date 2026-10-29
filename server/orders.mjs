@@ -116,7 +116,9 @@ export async function completePayment(form, { cfg, twenty, nicepay, log }) {
   try {
     paid = await nicepay.approve(form.tid, amount, orderNo);
   } catch (e) {
-    log({ event: "payment_approve_failed", orderNo, code: e.code, error: e.message, paidOrderId: e.paidOrderId, cancelError: e.cancelError });
+    log({ event: "payment_approve_failed", orderNo, code: e.code, error: e.message, paidOrderId: e.paidOrderId, paidTid: e.paidTid, cancelError: e.cancelError });
+    // 결제는 됐는데 취소를 확인하지 못한 경우: 고객에게 연락을 안내한다(로그의 paidTid로 직원이 취소)
+    if (e instanceof PaymentError && e.code === "unresolved") return fail(`결제 결과를 확인하지 못했어요. 카드 결제 내역이 있으면 ${cfg.tel}로 연락 주세요.`, orderNo);
     // 거절이 확정된 경우(승인 실패, 주문 불일치로 취소함)만 그대로 안내한다
     if (e instanceof PaymentError && e.code !== "bad_response") return fail(e.message, orderNo);
     // 응답이 끊기거나 읽을 수 없어 승인 여부를 모르면 망취소로 되돌린다(1시간 안에만 가능)

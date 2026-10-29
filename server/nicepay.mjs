@@ -49,9 +49,18 @@ export function createNicepay({ clientId, secretKey, apiUrl }, fetchImpl = fetch
         throw new PaymentError("approve_failed", r.resultMsg || "결제 승인에 실패했어요.");
       }
       if (r.orderId !== orderId) {
-        const err = new PaymentError("order_mismatch", "결제 정보가 주문과 달라요. 결제는 취소했어요.");
-        err.paidOrderId = r.orderId;
-        await this.cancel(r.tid ?? tid, r.orderId, "주문 정보 불일치로 자동 취소").catch((c) => { err.cancelError = c.message; });
+        // 취소가 실패하면 망취소로 한 번 더 시도하고, 그래도 안 되면 '해결 안 됨'으로 알린다(직원 확인 필요)
+        let cancelError = null;
+        try {
+          await this.cancel(r.tid ?? tid, r.orderId, "주문 정보 불일치로 자동 취소");
+        } catch (c) {
+          const nc = await this.netCancel(r.orderId).catch((n) => ({ resultMsg: n.message }));
+          if (nc?.resultCode !== "0000") cancelError = `${c.message} / 망취소: ${nc?.resultCode ?? ""} ${nc?.resultMsg ?? ""}`.trim();
+        }
+        const err = cancelError
+          ? new PaymentError("unresolved", "결제 정보가 주문과 달라 결제를 취소하려 했지만 확인하지 못했어요.")
+          : new PaymentError("order_mismatch", "결제 정보가 주문과 달라요. 결제는 취소했어요.");
+        Object.assign(err, { paidOrderId: r.orderId, paidTid: r.tid ?? tid, cancelError });
         throw err;
       }
       return r;
