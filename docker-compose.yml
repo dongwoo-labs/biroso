@@ -1,0 +1,155 @@
+# 비로소한의원 맥 셀프호스팅 스택 (렌탈ON과 프로젝트·네트워크·DB·Twenty를 모두 따로 쓴다)
+#   cloudflared  Cloudflare Tunnel. 밖에서 들어오는 포트를 열지 않고 Cloudflare로 나가는 연결만 쓴다(COMPOSE_PROFILES=public)
+#   caddy        도메인별 라우팅: 홈페이지 정적 파일, /api/* → api, CRM → access-proxy
+#   api          주문·결제·예약·환불·파기 API (server/server.mjs)
+#   builder      Twenty 콘텐츠로 홈페이지를 다시 빌드한다(Vercel 배포 훅 대신)
+#   cron         매일 03:00 재빌드, 04:00 파기 (Vercel 크론 대신, 한국 시간)
+#   access-proxy Twenty 앞단 접속기록 (안전성 확보조치 기준 제8조)
+#   twenty-*     CRM (서버, 워커, PostgreSQL, Redis)
+
+name: biroso
+
+x-twenty-env: &twenty-env
+  PG_DATABASE_URL: postgres://twenty:${TWENTY_DB_PASSWORD}@twenty-db:5432/twenty
+  REDIS_URL: redis://twenty-redis:6379
+  SERVER_URL: ${CRM_PUBLIC_URL}
+  APP_SECRET: ${TWENTY_APP_SECRET}
+  STORAGE_TYPE: local
+  TELEMETRY_ENABLED: "false"
+  ANALYTICS_ENABLED: "false"
+
+x-app-env: &app-env
+  TWENTY_URL: http://twenty-server:3000
+  TWENTY_API_KEY: ${TWENTY_API_KEY:-}
+  CRON_SECRET: ${CRON_SECRET}
+  SITE_URL: ${SITE_URL}
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.0
+    profiles: [public]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN이 필요합니다}
+    depends_on: [caddy]
+
+  caddy:
+    image: caddy:2.11.7
+    restart: unless-stopped
+    # 로컬 확인용. 127.0.0.1에만 묶어 밖에서는 닿지 않는다.
+    ports: ["127.0.0.1:${LOCAL_HTTP_PORT:-8091}:80"]
+    environment:
+      SITE_HOSTS: ${SITE_HOSTS}
+      CRM_HOST: ${CRM_HOST}
+      CRM_ALLOWED_IPS: ${CRM_ALLOWED_IPS:-0.0.0.0/0 ::/0}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - site:/srv/site:ro
+      - caddy-data:/data
+    depends_on: [api, access-proxy]
+
+  api:
+    image: biroso/site:local
+    build: .
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      NOTICE_VERSIONS: ${NOTICE_VERSIONS:-2026-11-01}
+      TRUST_PROXY: "1"
+      NICEPAY_CLIENT_ID: ${NICEPAY_CLIENT_ID:-}
+      NICEPAY_SECRET_KEY: ${NICEPAY_SECRET_KEY:-}
+      ADMIN_SECRET: ${ADMIN_SECRET:-}
+      INTAKE_RETENTION_DAYS: ${INTAKE_RETENTION_DAYS:-365}
+      PENDING_ORDER_HOURS: ${PENDING_ORDER_HOURS:-24}
+    depends_on: [twenty-server]
+
+  builder:
+    image: biroso/site:local
+    restart: unless-stopped
+    command: ["node", "infra/builder.mjs"]
+    user: root
+    environment:
+      <<: *app-env
+      TWENTY_CONTENT_KEY: ${TWENTY_CONTENT_KEY:-}
+      PUBLIC_SITE_URL: ${SITE_URL}
+      PUBLIC_LIVE: ${PUBLIC_LIVE:-}
+      PUBLIC_GA4_ID: ${PUBLIC_GA4_ID:-}
+      PUBLIC_NAVER_SITE_VERIFICATION: ${PUBLIC_NAVER_SITE_VERIFICATION:-}
+      PUBLIC_GOOGLE_SITE_VERIFICATION: ${PUBLIC_GOOGLE_SITE_VERIFICATION:-}
+    volumes: [site:/site]
+    depends_on: [twenty-server]
+
+  cron:
+    image: biroso/site:local
+    restart: unless-stopped
+    command: ["node", "infra/cron.mjs"]
+    environment:
+      CRON_SECRET: ${CRON_SECRET}
+      JOBS: |
+        03:00 POST http://builder:8080/rebuild
+        04:00 GET http://api:8788/v1/purge
+    depends_on: [api, builder]
+
+  access-proxy:
+    image: biroso/access-log-proxy:local
+    build: ./services/access-log-proxy
+    restart: unless-stopped
+    environment:
+      UPSTREAM: http://twenty-server:3000
+      PORT: "3100"
+      TRUST_XFF: "1"
+      LOG_FILE: /var/log/twenty-access/access.jsonl
+    volumes: [access-logs:/var/log/twenty-access]
+    depends_on: [twenty-server]
+
+  twenty-db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: twenty
+      POSTGRES_PASSWORD: ${TWENTY_DB_PASSWORD}
+      POSTGRES_DB: twenty
+    volumes: [twenty-db:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twenty"]
+      interval: 5s
+      retries: 20
+
+  twenty-redis:
+    image: redis:7
+    restart: unless-stopped
+
+  twenty-server:
+    image: twentycrm/twenty:v2.52.0
+    restart: unless-stopped
+    environment:
+      <<: *twenty-env
+      NODE_PORT: "3000"
+    volumes: [twenty-files:/app/packages/twenty-server/.local-storage]
+    depends_on:
+      twenty-db: { condition: service_healthy }
+      twenty-redis: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:3000/healthz || exit 1"]
+      interval: 10s
+      retries: 30
+
+  twenty-worker:
+    image: twentycrm/twenty:v2.52.0
+    restart: unless-stopped
+    command: ["yarn", "worker:prod"]
+    environment:
+      <<: *twenty-env
+      DISABLE_DB_MIGRATIONS: "true"
+    volumes: [twenty-files:/app/packages/twenty-server/.local-storage]
+    depends_on:
+      twenty-server: { condition: service_healthy }
+
+volumes:
+  site:
+  caddy-data:
+  twenty-db:
+  twenty-files:
+  access-logs:

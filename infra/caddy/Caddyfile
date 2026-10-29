@@ -1,0 +1,46 @@
+# 맥 셀프호스팅: TLS는 Cloudflare가 끝내고, cloudflared가 http://caddy:80 으로 넘긴다.
+# 그래서 사이트 주소는 http:// 로 적고, 호스트 포트는 열지 않는다(로컬 확인용 127.0.0.1 포트만).
+# 방문자 IP는 Cloudflare가 붙이는 Cf-Connecting-Ip에서 읽는다.
+{
+	servers {
+		trusted_proxies static private_ranges
+		client_ip_headers Cf-Connecting-Ip X-Forwarded-For
+	}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "SAMEORIGIN"
+		-Server
+	}
+}
+
+# 홈페이지(Astro 정적 빌드) + 주문·결제·예약 API(/api/*)
+{$SITE_HOSTS} {
+	import security_headers
+	handle /api/* {
+		reverse_proxy api:8788 {
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+	handle {
+		root * /srv/site/current
+		encode zstd gzip
+		try_files {path} {path}/ {path}.html
+		file_server
+	}
+}
+
+# CRM: 접속기록 프록시를 거친다. Twenty에 직접 붙는 경로를 열지 않는다.
+# Cloudflare Access(직원 이메일 인증)로 앞을 막고, 여기서는 허용 IP로 한 번 더 거른다.
+{$CRM_HOST} {
+	import security_headers
+	@blocked not client_ip {$CRM_ALLOWED_IPS}
+	respond @blocked "허용된 곳에서만 접속할 수 있습니다." 403
+	reverse_proxy access-proxy:3100 {
+		header_up X-Forwarded-For {client_ip}
+	}
+}
