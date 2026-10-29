@@ -5,6 +5,7 @@
 //   GET  /v1/slots?date=         진료 예약 가능 시간
 //   GET  /v1/closures            휴진일
 //   POST /v1/appointments        진료 예약
+//   POST /v1/consults            빠른 상담 신청
 //   GET  /v1/purge               파기 작업(Bearer CRON_SECRET, Vercel 크론)
 //   GET  /healthz
 
@@ -13,6 +14,7 @@ import { createTwenty } from "./twenty.mjs";
 import { createNicepay } from "./nicepay.mjs";
 import { createOrder, completePayment, refundOrder, Rejected } from "./orders.mjs";
 import { createAppointment, getSlots, getClosures } from "./appointments.mjs";
+import { createConsult } from "./consults.mjs";
 import { runPurge } from "./purge.mjs";
 
 const MAX_BODY = 32 * 1024;
@@ -91,7 +93,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
       } catch (e) { return e instanceof SyntaxError ? send(400, { error: "bad_json" }) : fail(e); }
     }
 
-    if (!["/v1/orders", "/v1/appointments", "/v1/slots", "/v1/closures"].includes(path)) return send(404, { error: "not_found" });
+    if (!["/v1/orders", "/v1/appointments", "/v1/consults", "/v1/slots", "/v1/closures"].includes(path)) return send(404, { error: "not_found" });
     if (req.method === "OPTIONS") { res.writeHead(origin && cors["Access-Control-Allow-Origin"] ? 204 : 403, cors); return res.end(); }
     if (origin && !cors["Access-Control-Allow-Origin"]) return send(403, { error: "origin_not_allowed" });
 
@@ -117,6 +119,11 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
         // 로그에는 개인정보를 남기지 않는다
         log({ ts: now.toISOString(), event: "order_created", orderNo: r.orderNo, amount: r.amounts.total });
         return send(201, r);
+      }
+      if (path === "/v1/consults") {
+        const r = await createConsult(body, ctx, ctxDeps);
+        log({ ts: now.toISOString(), event: "consult_created", consultId: r.consultId });
+        return send(201, { ok: true, message: "상담 신청을 받았어요. 진료시간 안에 전화드릴게요." });
       }
       const r = await createAppointment(body, ctx, ctxDeps);
       log({ ts: now.toISOString(), event: "appointment_created", appointmentId: r.appointmentId });

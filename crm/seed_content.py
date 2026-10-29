@@ -2,6 +2,7 @@
 
 사용: TWENTY_URL=... TWENTY_API_KEY=<관리자 키> SITE_URL=https://biroso.vercel.app python3 seed_content.py
 처음 한 번만 쓰는 스크립트다. 이후에는 Twenty 화면에서 고친다. 주소(slug)나 이름이 같은 레코드가 있으면 건너뛴다.
+단, 이미 넣은 상품에 판매 경로(수壽 매장 연결)가 비어 있으면 그것만 채운다.
 그림 주소는 SITE_URL을 붙인 절대 주소로 넣는다(Twenty 화면에서도 보이도록). 홈페이지 빌드가 다시 사이트 경로로 바꾼다.
 """
 import json, os, pathlib, re, sys, urllib.parse, urllib.request
@@ -46,8 +47,14 @@ def load(name):
 
 def main():
     for i, p in enumerate(load("products.json")):
-        if exists("products", "slug", p["slug"]):
-            print("있음:", p["name"]); continue
+        found = exists("products", "slug", p["slug"])
+        if found:
+            if p.get("salesChannel") == "SOO_STORE" and not found[0].get("sooProductId"):
+                rest("PATCH", f"/products/{found[0]['id']}", {"salesChannel": "SOO_STORE", "sooProductId": p["sooProductId"], "sooOption": p.get("sooOption") or ""})
+                print("수壽 매장 연결:", p["name"])
+            else:
+                print("있음:", p["name"])
+            continue
         rest("POST", "/products", {
             "name": p["name"], "kind": p["kind"], "category": p["category"], "slug": p["slug"], "title": p.get("title") or "",
             "summary": p.get("summary") or "", "body": {"markdown": absolute(p.get("body")), "blocknote": None},
@@ -56,6 +63,7 @@ def main():
             "attributes": p.get("attributes") or "", "imageUrl": link(p.get("image")),
             "gallery": "\n".join(SITE + g if g.startswith("/") else g for g in p.get("images", [])[1:]),
             "published": p["published"], "sortOrder": (i + 1) * 10,
+            "salesChannel": p.get("salesChannel") or "OWN", "sooProductId": p.get("sooProductId") or "", "sooOption": p.get("sooOption") or "",
         })
         print("상품:", p["name"])
     for i, e in enumerate(load("events.json")):

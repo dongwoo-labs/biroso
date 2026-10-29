@@ -29,10 +29,12 @@ export const BOARDS: Record<string, { name: string; path: string; id: string }> 
 };
 export const EVENT_BOARD_ID = "u8hi3acecd1db7frunakwwt8";
 
+// salesChannel: OWN(비로소 결제) | SOO_STORE(수壽 매장에서 처방 신청·결제). 수壽 매장 상품은 storeUrl로 보낸다.
 export type Product = {
   id: string; slug: string; name: string; kind: "PAYMENT" | "RESERVATION"; category: string; title: string; summary: string;
   bodyHtml: string; regularPrice: number; salePrice: number; soldOut: boolean; taxFree: boolean; freeShipping: boolean;
   telemedicine: boolean; inPerson: boolean; attributes: [string, string][]; image: string | null; images: string[]; sortOrder: number;
+  salesChannel: "OWN" | "SOO_STORE"; storeUrl: string | null;
 };
 export type Event = { slug: string; name: string; subtitle: string; summary: string; bodyHtml: string; image: string | null; startDate: string | null; endDate: string | null };
 export type Post = { slug: string; board: string; name: string; summary: string; bodyHtml: string; image: string | null; publishedOn: string };
@@ -102,6 +104,40 @@ const shown = { filter: "published[eq]:true", order_by: "sortOrder[AscNullsLast]
 
 const memo = <T,>(fn: () => Promise<T>) => { let p: Promise<T> | undefined; return () => (p ??= fn()); };
 
+// 수壽 매장 상품: 비로소한의원 전용 매장(thesoo.co/@biroso) 주소와, 수壽 공개 API의 현재 가격·판매 여부.
+// 수壽 API가 안 되면 Twenty 값을 그대로 쓴다(수壽 장애로 홈페이지 배포가 멈추지 않도록). 가격은 매장에서 다시 확인된다.
+const SOO_API = "https://public-api.thesoo.co/market/products/";
+export const sooStoreUrl = (id: string, slug: string) =>
+  `${clinic.links.sooStore}/products/${encodeURIComponent(id)}?utm_source=biroso&utm_medium=referral&utm_campaign=${encodeURIComponent(slug)}`;
+
+// 같은 수壽 상품을 옵션별로 여러 개 올려 두므로 상품마다 한 번만 읽는다
+const sooCache = new Map<string, Promise<any>>();
+const sooProduct = (id: string) => {
+  if (!sooCache.has(id)) sooCache.set(id, (async () => {
+    const res = await fetch(SOO_API + encodeURIComponent(id), { headers: { "User-Agent": "biroso-site-build/1.0" }, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(String(res.status));
+    return (await res.json()).data;
+  })());
+  return sooCache.get(id)!;
+};
+
+async function withSoo<T extends { slug: string; salePrice: number; regularPrice: number; soldOut: boolean; salesChannel: string; sooProductId?: string; sooOption?: string }>(p: T) {
+  if (p.salesChannel !== "SOO_STORE" || !p.sooProductId) return { ...p, storeUrl: p.salesChannel === "SOO_STORE" ? clinic.links.sooStore : null };
+  const out = { ...p, storeUrl: sooStoreUrl(p.sooProductId, p.slug) };
+  try {
+    const s = await sooProduct(p.sooProductId);
+    if (!s.enabled || s.discontinued) out.soldOut = true;
+    // 수량 옵션(예: "30환 단품 【-15%】")에 맞는 가격. 옵션이 없으면 상품 판매가.
+    const value = (s.options ?? []).flatMap((o: any) => o.values ?? []).find((v: any) => v.name?.replace(/\s+/g, " ").trim() === (p.sooOption ?? "").replace(/\s+/g, " ").trim());
+    const variant = value && (s.variants ?? []).find((x: any) => x.options?.some((o: any) => o.value_id === value.id));
+    const price = Number(variant?.price ?? (p.sooOption ? NaN : s.sale_price ?? s.price));
+    if (Number.isFinite(price) && price > 0) out.salePrice = price;
+  } catch (e) {
+    console.warn(`수壽 상품 ${p.sooProductId}(${p.slug})을 읽지 못해 Twenty 값을 씁니다: ${(e as Error).message}`);
+  }
+  return out;
+}
+
 export const loadProducts = memo(async (): Promise<Product[]> => {
   const conn = twenty();
   const rows = conn ? (await listAll(conn, "products", shown)).map((p) => ({
@@ -110,8 +146,9 @@ export const loadProducts = memo(async (): Promise<Product[]> => {
     soldOut: Boolean(p.soldOut), taxFree: Boolean(p.taxFree), freeShipping: Boolean(p.freeShipping), telemedicine: Boolean(p.telemedicine),
     inPerson: Boolean(p.inPerson), attributes: p.attributes ?? "", image: p.imageUrl?.primaryLinkUrl ?? null,
     images: [p.imageUrl?.primaryLinkUrl, ...String(p.gallery ?? "").split(/\s+/)].filter(Boolean), sortOrder: p.sortOrder ?? 0,
-  })) : productsFile.items.filter((p) => p.published).map((p, i) => ({ ...p, id: `local-${i}` }));
-  return rows.map((p: any) => ({
+    salesChannel: p.salesChannel ?? "OWN", sooProductId: p.sooProductId ?? "", sooOption: p.sooOption ?? "",
+  })) : productsFile.items.filter((p) => p.published).map((p: any, i) => ({ salesChannel: "OWN", ...p, id: `local-${i}` }));
+  return (await Promise.all(rows.map((p: any) => withSoo(p)))).map((p: any) => ({
     ...p, bodyHtml: renderMarkdown(p.body), attributes: parseAttributes(p.attributes),
     image: imagePath(p.image), images: [...new Set((p.images ?? []).map(imagePath).filter(Boolean))] as string[],
   }));

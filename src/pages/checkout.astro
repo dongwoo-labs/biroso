@@ -7,7 +7,7 @@ import ConsentFields from "../components/ConsentFields.astro";
 import clinic from "../data/clinic.json";
 import { loadProducts } from "../lib/content";
 
-const catalog = (await loadProducts()).filter((p) => p.kind === "PAYMENT")
+const catalog = (await loadProducts()).filter((p) => p.kind === "PAYMENT" && p.salesChannel !== "SOO_STORE")
   .map((p) => ({ slug: p.slug, name: p.name, price: p.salePrice, image: p.image, soldOut: p.soldOut, diet: p.category === "DIET", freeShipping: p.freeShipping }));
 ---
 <Base title={`주문서 | ${clinic.name}`} description="처방 신청" task bottomBar={false}>
@@ -81,7 +81,7 @@ const catalog = (await loadProducts()).filter((p) => p.kind === "PAYMENT")
         <p class="text-[12px] text-ink-faint">처방 확정 전까지 취소할 수 있고, 진료 결과 처방이 어려우면 전액 환불해 드려요.</p>
       </section>
 
-      <ConsentFields terms />
+      <ConsentFields terms dosage />
       <input type="text" name="website" class="hidden" tabindex="-1" autocomplete="off" aria-hidden="true" />
       <p class="hidden rounded-2xl bg-wash p-4 text-[15px] font-semibold text-err" data-result role="alert"></p>
       <div class="sticky bottom-0 -mx-5 border-t border-line bg-paper px-5 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 sm:static sm:m-0 sm:border-0 sm:p-0">
@@ -93,7 +93,7 @@ const catalog = (await loadProducts()).filter((p) => p.kind === "PAYMENT")
 
 <script>
   import { readCart, readDirect } from "../lib/cart";
-  import { bindPhone, showErrors, postJson, numOrNull, str } from "../lib/form";
+  import { bindPhone, showErrors, postJson, str, readIntake, checkMulti } from "../lib/form";
   import { readAttribution } from "../lib/attribution";
 
   declare const AUTHNICE: { requestPay(o: Record<string, unknown>): void };
@@ -169,6 +169,7 @@ const catalog = (await loadProducts()).filter((p) => p.kind === "PAYMENT")
         if (!i.closest("[hidden]") && !i.checkValidity()) local[i.name] ??= i.type === "checkbox" ? "동의가 필요해요." : "입력해 주세요.";
       });
       if (!pickup() && !str($<HTMLInputElement>('[name="recipient.zip"]').value)) local["recipient.zip"] = "주소 검색으로 우편번호를 넣어 주세요.";
+      checkMulti(form, local);
       if (showErrors(form, local)) return;
 
       const fd = new FormData(form);
@@ -180,15 +181,10 @@ const catalog = (await loadProducts()).filter((p) => p.kind === "PAYMENT")
           name: same ? "" : str(fd.get("recipient.name")), phone: same ? "" : str(fd.get("recipient.phone")),
           zip: str(fd.get("recipient.zip")), address1: str(fd.get("recipient.address1")), address2: str(fd.get("recipient.address2")), memo: str(fd.get("recipient.memo")),
         },
-        intake: {
-          sex: str(fd.get("intake.sex")), birthYear: numOrNull(fd.get("intake.birthYear")),
-          heightCm: diet ? numOrNull(fd.get("intake.heightCm")) : null, weightKg: diet ? numOrNull(fd.get("intake.weightKg")) : null,
-          pregnancy: str(fd.get("intake.pregnancy")) || "NONE", medications: str(fd.get("intake.medications")), conditions: str(fd.get("intake.conditions")),
-          allergies: str(fd.get("intake.allergies")), dietHistory: diet ? str(fd.get("intake.dietHistory")) : "", symptoms: str(fd.get("intake.symptoms")),
-        },
+        intake: readIntake(fd, diet),
         consents: {
           privacy: fd.get("consents.privacy") === "on", sensitive: fd.get("consents.sensitive") === "on",
-          terms: fd.get("consents.terms") === "on", marketing: fd.get("consents.marketing") === "on",
+          terms: fd.get("consents.terms") === "on", dosage: fd.get("consents.dosage") === "on", marketing: fd.get("consents.marketing") === "on",
         },
         noticeVersion: str(fd.get("noticeVersion")), website: str(fd.get("website")), formOpenedAt: openedAt, ...readAttribution(),
       };

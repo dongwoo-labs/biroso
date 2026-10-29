@@ -17,12 +17,14 @@ export function loadConfig(env = process.env) {
     siteUrl,
     allowedOrigins: [...list(env.ALLOWED_ORIGINS, "http://localhost:4321"), siteUrl, ...vercelOrigins(env)].map((o) => new URL(o).origin),
     // 현재 게시 중인 동의문 버전. 화면이 다른 버전을 보내면 거절한다(src/data/notice.json의 version과 같아야 한다).
-    noticeVersions: list(env.NOTICE_VERSIONS, "2026-11-01"),
+    noticeVersions: list(env.NOTICE_VERSIONS, "2026-11-02"),
     rateLimitPer10Min: Number(env.RATE_LIMIT_PER_10MIN ?? 10),
     minFillMs: Number(env.MIN_FILL_MS ?? 2500),
     trustProxy: env.TRUST_PROXY === "1" || env.VERCEL === "1",
     // 문진(건강정보) 보유기간(일). 처리방침에 적은 기간과 같아야 한다. 진료 기록은 한의원 전자차트에 따로 남긴다.
     intakeRetentionDays: Number(env.INTAKE_RETENTION_DAYS ?? 365),
+    // 빠른 상담 신청(이름·휴대폰) 보관 기간(일). 처리방침(src/data/notice.json의 consult)과 같아야 한다.
+    consultRetentionDays: Number(env.QUICK_CONSULT_RETENTION_DAYS ?? 90),
     // 결제하지 않고 떠난 주문(결제 대기)을 지우기까지의 시간
     pendingOrderHours: Number(env.PENDING_ORDER_HOURS ?? 24),
     // 나이스페이 결제창(Server 승인). 샌드박스 키(S1_/S2_로 시작)면 샌드박스 API로 승인한다.
