@@ -11,7 +11,7 @@ import faqsFile from "../data/faqs.json";
 import clinic from "../data/clinic.json";
 
 export const CATEGORY: Record<string, string> = {
-  DIET: "비로소 다이어트", GONGJINDAN: "공진단 수壽", GYEONGOKGO: "경옥고 수壽", UHWANG: "우황청심원 수壽", DECOCTION: "탕약 수壽", ETC: "기타",
+  DIET: "비로소 다이어트", GONGJINDAN: "공진단 수壽", GYEONGOKGO: "경옥고 수壽", UHWANG: "우황청심원 수壽", DECOCTION: "탕약 수壽", SKINCARE: "RATIOLOGY 화장품", ETC: "기타",
 };
 
 // 게시판: 값 → 이름, 기존 사이트 주소(board/category-N/<게시판 ID>/<글 ID>). 주소는 검색·블로그 링크가 걸려 있어 그대로 쓴다.
@@ -26,6 +26,7 @@ export const BOARDS: Record<string, { name: string; path: string; id: string }> 
   BALANCE: { name: "비로소 균형치료", path: "category-9", id: "p50wb1k6q36eabnvsq64udbh" },
   DIET: { name: "비로소 다이어트", path: "category-21", id: "megzv5pgjhnq8i6mi2j6qmxb" },
   IMMUNE: { name: "비로소 면역치료", path: "category-10", id: "l1kvzej6x9lqjd7tlgzivtc5" },
+  SOOBLOG: { name: "공진단 효능 및 복용 안내", path: "sooblog", id: "gcwglfes585x1hdk42lxi51q" },
 };
 export const EVENT_BOARD_ID = "u8hi3acecd1db7frunakwwt8";
 

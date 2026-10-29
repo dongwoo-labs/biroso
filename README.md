@@ -57,9 +57,8 @@
 ## 한의원이 확인해야 할 것
 
 - 통신판매업 신고번호: 기존 사이트에도 비어 있다. 신고 후 `src/data/clinic.json`의 `mailOrderNo`에 넣는다.
-- 비급여 진료 비용: 기존 사이트 페이지가 비어 있다. 침·추나 등 시술 비용을 `src/data/npay.json`에 넣는다(한약 가격은 자동).
-- 개인정보 보호책임자·이메일(`clinic.json`의 `privacyOfficer`, `email`), 위탁 업체 목록(`src/pages/privacy.astro`).
-- 기존 사이트에 이름·가격이 같은 상품이 4쌍 있다(침향공진단 30환 단품·2박스, 녹용공진단 30환 2박스, 쌍화탕 1박스). 그대로 옮겼으니 Twenty에서 하나씩 '홈페이지 노출'을 끄면 된다.
+- 비급여 진료 비용: 기존 사이트의 수가표 PDF(2026-08-05 작성, 시행일 빈칸) 134개 항목을 `src/data/npay.json`에 옮겼다. 시행일과 최신 금액을 확인한다. 바뀌면 이 파일을 고친다(한약 상품 가격은 자동).
+- 개인정보 보호책임자(`clinic.json`의 `privacyOfficer`. 이메일은 기존 사이트의 clinic.biroso@gmail.com을 넣었다), 위탁 업체 목록(`src/pages/privacy.astro`).
 
 ## 개발
 

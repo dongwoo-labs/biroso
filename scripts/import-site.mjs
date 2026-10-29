@@ -22,10 +22,10 @@ const UA = "Mozilla/5.0 (biroso-import/1.0)";
 // 메뉴의 게시판(board/category-N)과 이 사이트에서 쓰는 게시판 값. 값은 crm/setup_clinic_objects.py의 BOARDS와 같다.
 export const BOARDS = {
   "category-22": "NEWS", "category-4": "COLUMN", "category-2": "START", "category-16": "HEALTH", "category-3": "LOCATION",
-  "category-5": "HERBAL", "category-6": "PHARMACOPUNCTURE", "category-9": "BALANCE", "category-21": "DIET", "category-10": "IMMUNE",
+  "category-5": "HERBAL", "category-6": "PHARMACOPUNCTURE", "category-9": "BALANCE", "category-21": "DIET", "category-10": "IMMUNE", "sooblog": "SOOBLOG",
 };
 // 원내 상품 분류(원본 product_category 이름 → 값)
-const CATEGORIES = { "비로소 다이어트": "DIET", "공진단 수壽": "GONGJINDAN", "경옥고 수壽": "GYEONGOKGO", "우황청심원 수壽": "UHWANG", "탕약 수壽": "DECOCTION" };
+const CATEGORIES = { "비로소 다이어트": "DIET", "공진단 수壽": "GONGJINDAN", "경옥고 수壽": "GYEONGOKGO", "우황청심원 수壽": "UHWANG", "탕약 수壽": "DECOCTION", "RATIOLOGY": "SKINCARE" };
 // 원본 attributes 키 → 화면 이름
 const ATTR_LABEL = { amount: "상품 용량", ingredients: "주요 성분", benefits: "상품 효과", expiry_info: "사용 기한", note: "기타 사항" };
 
@@ -77,8 +77,10 @@ const saved = new Map();
 async function media(url) {
   if (!url) return null;
   if (saved.has(url)) return saved.get(url);
+  if (url.startsWith("//")) url = `https:${url}`;
   const p = (async () => {
-    const res = await fetch(url, { headers: { "User-Agent": UA } });
+    const res = await fetch(url, { headers: { "User-Agent": UA } }).catch(() => null);
+    if (!res) { console.warn("  그림 실패", url); return null; }
     if (!res.ok) { console.warn("  그림 실패", res.status, url); return null; }
     const type = res.headers.get("content-type") ?? "";
     const ext = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/svg+xml": "svg" }[type.split(";")[0]]
@@ -146,26 +148,33 @@ async function main() {
   await mkdir(DATA, { recursive: true });
   await mkdir(MEDIA, { recursive: true });
 
-  // 1) 원내 상품 목록(결제형)과 진료 예약(예약형) 목록
+  // 1) 원내 상품 목록(결제형)과 진료 예약(예약형) 목록. 화면 HTML에는 첫 화면에 보이는 상품만 실려 있어
+  // 사이트가 쓰는 공개 목록 API로 전부 받는다.
   const productIds = new Set();
-  for (const path of ["/telemedicine/product", "/telemedicine/reservation", "/"]) {
-    const html = await get(path);
-    for (const m of html.matchAll(/\/telemedicine\/([a-z0-9]{20,})/g)) productIds.add(m[1]);
-    const { s } = flight(html);
-    for (const m of s.matchAll(/"documentId":"([a-z0-9]{24})","name":"[^"]*","sku"/g)) productIds.add(m[1]);
-    for (const m of s.matchAll(/\{"sort_order":-?\d+,"id":\d+,"documentId":"([a-z0-9]{24})","name":"[^"]*","sku"/g)) productIds.add(m[1]);
+  for (const type of ["payment", "reservation"]) {
+    const q = new URLSearchParams({ "filters[enabled]": "true", "filters[product_type][$eq]": type, "pagination[pageSize]": "1000", "fields[0]": "documentId" });
+    const { data } = JSON.parse(await get(`/api/company-products?${q}`));
+    for (const p of data) productIds.add(p.documentId);
   }
 
   // 2) 상품마다 상세 페이지에서 본문까지 읽는다
   const products = [];
   let company = null, settings = [];
+  // 한의원 정보·설정은 상품 화면 하나에 실린 서버 데이터에서 읽는다
+  {
+    const qs = queries(flight(await get(`/telemedicine/${[...productIds][0]}`)).s);
+    company = qs.find((q) => q.key?.[0] === "company")?.data ?? null;
+    settings = qs.find((q) => q.key?.[0] === "companySetting")?.data ?? [];
+  }
+  // 상품 본문은 화면의 서버 데이터에서 참조로 빠지는 경우가 많아 상품 API로 읽는다
+  const detailQuery = new URLSearchParams({
+    "populate[product_category][fields][0]": "name", "populate[product_category][fields][1]": "sort_order",
+    "populate[featured_images][populate]": "default_image",
+  });
+  const ref = (v) => v ?? "";
   for (const id of productIds) {
-    const { s, ref } = flight(await get(`/telemedicine/${id}`));
-    const qs = queries(s);
-    const p = qs.find((q) => q.data?.documentId === id && "regular_price" in q.data)?.data;
-    company ??= qs.find((q) => q.key?.[0] === "company")?.data;
-    if (!settings.length) settings = qs.find((q) => q.key?.[0] === "companySetting")?.data ?? [];
-    if (!p) { console.warn("상품을 못 읽음", id); continue; }
+    let p;
+    try { p = JSON.parse(await get(`/api/company-products/${id}?${detailQuery}`)); } catch (e) { console.warn("상품을 못 읽음", id, e.message); continue; }
     const reservation = p.product_type === "reservation";
     const images = await Promise.all(allImages(p).map(media));
     products.push({
@@ -247,6 +256,7 @@ async function main() {
     tel: (company?.phone ?? "").replace(/^(02)(\d{3,4})(\d{4})$/, "$1-$2-$3") || clinic.tel,
     bizNo: (company?.business_registration_number ?? "").replace(/^(\d{3})(\d{2})(\d{5})$/, "$1-$2-$3") || clinic.bizNo,
     mailOrderNo: company?.e_commerce_number || clinic.mailOrderNo || "",
+    email: company?.email || clinic.email || "",
     introduction: company?.introduction ?? clinic.introduction ?? "",
     policies: {
       shipping: tidy(td.turndown(setting("shipping_policy"))),
@@ -258,7 +268,11 @@ async function main() {
 
   const write = (name, v) => writeFile(join(DATA, name), JSON.stringify(v, null, 2) + "\n");
   const asOf = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
-  await write("products.json", { asOf, source: BASE, items: products.sort((a, b) => a.sortOrder - b.sortOrder) });
+  // 원본에 없는 필드(판매 경로 등 손으로 더한 값)는 같은 slug의 기존 항목에서 이어받는다
+  const productsPath = join(DATA, "products.json");
+  const prev = new Map((existsSync(productsPath) ? JSON.parse(await readFile(productsPath, "utf8")).items : []).map((p) => [p.slug, p]));
+  const merged = products.map((p) => ({ ...prev.get(p.slug), ...p }));
+  await write("products.json", { asOf, source: BASE, items: merged.sort((a, b) => a.sortOrder - b.sortOrder) });
   await write("events.json", { asOf, source: BASE, items: events.sort((a, b) => a.sortOrder - b.sortOrder) });
   await write("posts.json", { asOf, source: BASE, items: posts });
   await write("faqs.json", { asOf, source: BASE, items: faqs });
