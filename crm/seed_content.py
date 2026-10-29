@@ -4,7 +4,7 @@
 처음 한 번만 쓰는 스크립트다. 이후에는 Twenty 화면에서 고친다. 주소(slug)나 이름이 같은 레코드가 있으면 건너뛴다.
 그림 주소는 SITE_URL을 붙인 절대 주소로 넣는다(Twenty 화면에서도 보이도록). 홈페이지 빌드가 다시 사이트 경로로 바꾼다.
 """
-import json, os, pathlib, re, sys, urllib.parse, urllib.request
+import json, os, pathlib, re, sys, time, urllib.error, urllib.parse, urllib.request
 from setup_clinic_objects import KEY, UA, URL
 
 SITE = os.environ.get("SITE_URL", "https://biroso.vercel.app").rstrip("/")
@@ -17,6 +17,14 @@ def rest(method, path, body=None):
         data=None if body is None else json.dumps(body).encode(),
         headers={"Authorization": "Bearer " + KEY, "Content-Type": "application/json", "User-Agent": UA},
     )
+    # 셀프호스팅 Twenty는 API 호출 수를 1분 단위로 제한한다(429). 잠시 쉬고 다시 보낸다.
+    for _ in range(5):
+        try:
+            return json.load(urllib.request.urlopen(req))
+        except urllib.error.HTTPError as e:
+            if e.code != 429:
+                raise
+            time.sleep(30)
     return json.load(urllib.request.urlopen(req))
 
 
