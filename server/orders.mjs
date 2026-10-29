@@ -114,12 +114,18 @@ export async function completePayment(form, { cfg, twenty, nicepay, log }) {
 
   let paid;
   try {
-    paid = await nicepay.approve(form.tid, amount);
+    paid = await nicepay.approve(form.tid, amount, orderNo);
   } catch (e) {
-    log({ event: "payment_approve_failed", orderNo, error: e.message });
-    // 응답이 끊겨 승인 여부를 모르면 망취소로 되돌린다(1시간 안에만 가능)
-    if (!(e instanceof PaymentError)) await nicepay.netCancel(orderNo).catch(() => {});
-    return fail(e instanceof PaymentError ? e.message : "결제 승인 중 문제가 생겼어요. 결제되지 않았어요.", orderNo);
+    log({ event: "payment_approve_failed", orderNo, code: e.code, error: e.message, paidOrderId: e.paidOrderId, paidTid: e.paidTid, cancelError: e.cancelError });
+    // 결제는 됐는데 취소를 확인하지 못한 경우: 고객에게 연락을 안내한다(로그의 paidTid로 직원이 취소)
+    if (e instanceof PaymentError && e.code === "unresolved") return fail(`결제 결과를 확인하지 못했어요. 카드 결제 내역이 있으면 ${cfg.tel}로 연락 주세요.`, orderNo);
+    // 거절이 확정된 경우(승인 실패, 주문 불일치로 취소함)만 그대로 안내한다
+    if (e instanceof PaymentError && e.code !== "bad_response") return fail(e.message, orderNo);
+    // 응답이 끊기거나 읽을 수 없어 승인 여부를 모르면 망취소로 되돌린다(1시간 안에만 가능)
+    const nc = await nicepay.netCancel(orderNo).catch((c) => ({ error: c.message }));
+    if (nc?.resultCode === "0000") return fail("결제 승인 중 문제가 생겨 결제를 취소했어요. 다시 시도해 주세요.", orderNo);
+    log({ event: "payment_netcancel_failed", orderNo, result: nc?.resultCode ?? nc?.error });
+    return fail(`결제 결과를 확인하지 못했어요. 카드 결제 내역이 있으면 ${cfg.tel}로 연락 주세요.`, orderNo);
   }
 
   try {
@@ -154,8 +160,12 @@ export async function refundOrder(body, { twenty, nicepay }, now = new Date()) {
   if (["PRESCRIBED", "SHIPPED", "DONE"].includes(order.orderStatus) && !body.force) {
     throw new Rejected(409, "prescribed", "처방이 확정된 주문은 교환·반품 기준으로 처리해요. 그래도 환불하려면 force를 켜 주세요.");
   }
-  const amount = body.amount ? Number(body.amount) : undefined;
-  const r = await nicepay.cancel(order.pgTid, orderNo, reason, amount);
+  // 전액 환불만 한다. 부분 환불을 받으면 남은 금액이 있는데도 '환불'로 표시돼 나머지를 다시 환불할 수 없게 된다.
+  const total = wonOf(order.totalAmount);
+  if (body.amount != null && Number(body.amount) !== total) {
+    throw new Rejected(422, "partial_refund", "부분 환불은 지원하지 않아요. 나이스페이 가맹점 관리자에서 처리해 주세요.");
+  }
+  const r = await nicepay.cancel(order.pgTid, orderNo, reason);
   await twenty.updateOrder(order.id, { orderStatus: "REFUNDED", cancelReason: reason, cancelledAt: now.toISOString() });
-  return { orderNo, refunded: amount ?? wonOf(order.totalAmount), balance: r.balanceAmt };
+  return { orderNo, refunded: total, balance: r.balanceAmt };
 }
