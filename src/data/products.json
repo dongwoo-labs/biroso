@@ -507,7 +507,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "내용량: 1박스 - 10환 (5g x 10환), 30환 (5g x 30환)  \n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송\nredirectProductId: 66bc4898f6423867cf4913fe",
+      "attributes": "내용량: 1박스 - 10환 (5g x 10환), 30환 (5g x 30환)  \n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송",
       "freeShipping": true,
       "image": "/media/dfe0e6bf29ed5f89.webp",
       "images": [
@@ -530,7 +530,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "내용량: 1박스 - 10환 (5g x 10환), 30환 (5g x 30환)\n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송\nredirectProductId: 66bc4898f6423867cf4913fa",
+      "attributes": "내용량: 1박스 - 10환 (5g x 10환), 30환 (5g x 30환)\n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송",
       "freeShipping": true,
       "image": "/media/015fcbcaa6acf8c3.webp",
       "images": [
@@ -553,7 +553,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "내용량: 1박스 - 10환 (4.5g x 10환), 30환 (4.5g x 30환) \n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송\nredirectProductId: 66bc4898f6423867cf4913fc",
+      "attributes": "내용량: 1박스 - 10환 (4.5g x 10환), 30환 (4.5g x 30환) \n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송",
       "freeShipping": true,
       "image": "/media/009144bb487bc022.webp",
       "images": [
@@ -576,7 +576,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "내용량: 1박스 - 10환 (5g x 10환), 30환 (5g x 30환)\n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송\nredirectProductId: 66bc4898f6423867cf4913fa",
+      "attributes": "내용량: 1박스 - 10환 (5g x 10환), 30환 (5g x 30환)\n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송",
       "freeShipping": true,
       "image": "/media/015fcbcaa6acf8c3.webp",
       "images": [
@@ -599,7 +599,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "내용량: 1박스 - 10환 (4.5g x 10환), 30환 (4.5g x 30환) \n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송\nredirectProductId: 66bc4898f6423867cf4913fc",
+      "attributes": "내용량: 1박스 - 10환 (4.5g x 10환), 30환 (4.5g x 30환) \n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송",
       "freeShipping": true,
       "image": "/media/009144bb487bc022.webp",
       "images": [
@@ -622,7 +622,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "내용량: 1박스 - 10환 (5g x 10환), 30환 (5g x 30환)  \n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송\nredirectProductId: 66bc4898f6423867cf4913fe",
+      "attributes": "내용량: 1박스 - 10환 (5g x 10환), 30환 (5g x 30환)  \n배송일: 비대면 진료 완료 후, 영업일 5일 이내 출고\n배송비: 무료배송",
       "freeShipping": true,
       "image": "/media/dfe0e6bf29ed5f89.webp",
       "images": [
@@ -1082,7 +1082,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "beautystream: [object Object]",
+      "attributes": "",
       "freeShipping": false,
       "image": "/media/8f315aa07b4be18e.webp",
       "images": [
@@ -1105,7 +1105,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "beautystream: [object Object]",
+      "attributes": "",
       "freeShipping": false,
       "image": "/media/ce095c114a0141f5.webp",
       "images": [
@@ -1128,7 +1128,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "beautystream: [object Object]",
+      "attributes": "",
       "freeShipping": false,
       "image": "/media/99b16d9ce2fa6a3d.webp",
       "images": [
@@ -1151,7 +1151,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "beautystream: [object Object]",
+      "attributes": "",
       "freeShipping": false,
       "image": "/media/e764b3e3a4ee6c4a.webp",
       "images": [
@@ -1174,7 +1174,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "beautystream: [object Object]",
+      "attributes": "",
       "freeShipping": false,
       "image": "/media/33c97481f7aa705c.webp",
       "images": [
@@ -1197,7 +1197,7 @@
       "taxFree": false,
       "telemedicine": false,
       "inPerson": false,
-      "attributes": "beautystream: [object Object]",
+      "attributes": "",
       "freeShipping": false,
       "image": "/media/030ebc14d6182d64.webp",
       "images": [

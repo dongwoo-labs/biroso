@@ -75,7 +75,7 @@ const parseAttributes = (raw: string | null | undefined): [string, string][] =>
   String(raw ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
     const i = l.search(/[:：]/);
     return i > 0 ? [l.slice(0, i).trim(), l.slice(i + 1).trim()] : [l, ""];
-  });
+  }).filter(([k]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)); // 영문 키(옛 플랫폼 내부 값)는 손님 화면에 내보내지 않는다
 const won = (c: { amountMicros?: number | null } | null | undefined) => (c?.amountMicros == null ? 0 : Math.round(c.amountMicros / 1_000_000));
 const md = (rich: any) => (typeof rich === "string" ? rich : rich?.markdown ?? "");
 
