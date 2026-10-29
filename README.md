@@ -54,7 +54,7 @@
 
 - `server/server.mjs`가 `server/handler.mjs`를 node:http로 띄우고, Caddy가 `/api/*`를 넘긴다(주소는 Vercel 때와 같다).
 - 배포 훅·크론 대신 `builder`(재빌드)와 `cron`(03:00 재빌드, 04:00 파기)이 돈다.
-- Twenty는 렌탈ON과 따로 띄우고, 앞에 접속기록 프록시(`services/access-log-proxy`)를 둔다.
+- Twenty는 공용 스택(`dongwoo-labs/crm`, `~/srv/crm`)의 `biroso` 워크스페이스를 쓴다. 렌탈ON과 사용자·역할·API 키·데이터 스키마가 따로고, DB 인스턴스와 접속기록 프록시는 같이 쓴다.
 - 설치, Cloudflare, 백업·복원, 맥 보호 조치: `infra/mac/README.md`
 
 ## 개인정보

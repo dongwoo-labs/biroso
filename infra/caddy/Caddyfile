@@ -34,13 +34,3 @@
 	}
 }
 
-# CRM: 접속기록 프록시를 거친다. Twenty에 직접 붙는 경로를 열지 않는다.
-# Cloudflare Access(직원 이메일 인증)로 앞을 막고, 여기서는 허용 IP로 한 번 더 거른다.
-{$CRM_HOST} {
-	import security_headers
-	@blocked not client_ip {$CRM_ALLOWED_IPS}
-	respond @blocked "허용된 곳에서만 접속할 수 있습니다." 403
-	reverse_proxy access-proxy:3100 {
-		header_up X-Forwarded-For {client_ip}
-	}
-}

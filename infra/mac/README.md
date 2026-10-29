@@ -1,21 +1,24 @@
 # 맥 셀프호스팅 운영
 
-렌탈ON(`dongwoo-labs/rentalon`)과 비로소한의원(`dongwoo-labs/biroso`)을 맥북 한 대(mbp-desk)에서 돌린다. 두 저장소에 같은 문서가 있다.
+렌탈ON(`dongwoo-labs/rentalon`)과 비로소한의원(`dongwoo-labs/biroso`)을 맥북 한 대(mbp-desk)에서 돌린다. CRM은 공용 Twenty 스택(`crm`)의 워크스페이스를 하나씩 쓴다. 세 저장소에 같은 문서가 있다.
 
 ## 구성
 
 ```
 방문자 ─▶ Cloudflare(TLS, Access) ─▶ cloudflared ─▶ caddy ─┬─▶ 정적 사이트 (builder가 만든 site 볼륨)
-           (맥으로 들어오는 포트 없음)   (프로젝트마다 따로)      ├─▶ /api/* → API
-                                                                ├─▶ CRM → 접속기록 프록시 → Twenty
-                                                                └─▶ (렌탈ON) Matomo
+           (맥으로 들어오는 포트 없음)   (rentalon, biroso)      ├─▶ /api/* → API ──┐
+                                                                └─▶ (렌탈ON) Matomo │ crm 네트워크
+직원 ─▶ Cloudflare(TLS, Access) ─▶ cloudflared(crm) ─▶ 접속기록 프록시 ─▶ Twenty ◀──┘ (http://crm-twenty:3000)
+           *.<CRM 도메인>                                              (멀티 워크스페이스)
 cron ─▶ 03:00 재빌드, 비로소 04:00 파기, 렌탈ON 10:00 후기 링크 (한국 시간)
 launchd ─▶ 로그인 때 Colima 시작, 매일 암호화 백업
 ```
 
 - Docker는 Colima VM `selfhost`(CPU 4, 메모리 6GiB, 디스크 60GiB) 하나에서 돈다. docker 명령은 `DOCKER_CONTEXT=colima-selfhost`로 부른다.
-- 두 서비스는 compose 프로젝트(`rentalon`, `biroso`)가 달라 네트워크, Twenty, PostgreSQL, 볼륨, 비밀값, Cloudflare 터널, 백업 키가 모두 따로다. 한의원 건강정보(문진)는 렌탈ON 쪽에서 닿을 길이 없다.
-- 운영 폴더는 `~/srv/rentalon`, `~/srv/biroso`(각 저장소 clone), 백업은 `~/srv/backups/<프로젝트>`, 로그는 `~/srv/logs`.
+- compose 프로젝트는 세 개다. `crm`은 Twenty(서버, 워커, PostgreSQL, Redis)와 접속기록 프록시, `rentalon`·`biroso`는 사이트와 API다. 앱은 외부 네트워크 `crm`으로 Twenty API에 붙는다. `crm`을 먼저 띄운다.
+- Twenty는 멀티 워크스페이스로 돈다(`IS_MULTIWORKSPACE_ENABLED=true`). 워크스페이스는 `rentalon`, `biroso` 둘이고, 주소는 `https://<서브도메인>.<CRM 도메인>`, 로그인 입구는 `https://app.<CRM 도메인>`이다. 데이터는 워크스페이스마다 다른 PostgreSQL 스키마에 있고, 사용자·역할·API 키도 워크스페이스마다 따로다. 렌탈ON의 API 키로는 한의원 워크스페이스(문진)를 읽을 수 없다. DB 인스턴스와 백업 파일은 같이 쓴다.
+- 새 워크스페이스는 서버 관리자만 만들 수 있다(`IS_WORKSPACE_CREATION_LIMITED_TO_SERVER_ADMINS=true`). 멀티 워크스페이스에서는 첫 가입자도 자동으로 서버 관리자가 되지 않으므로, 처음 한 번 DB에서 켠다(아래 "Twenty").
+- 운영 폴더는 `~/srv/crm`, `~/srv/rentalon`, `~/srv/biroso`(각 저장소 clone), 백업은 `~/srv/backups/<프로젝트>`, 로그는 `~/srv/logs`.
 - 같은 맥의 개인용 Twenty(Colima `twenty`, `~/.local/share/twenty-crm`)와는 관계없다.
 
 ## 처음 설치
@@ -26,10 +29,12 @@ git clone https://github.com/dongwoo-labs/<프로젝트>.git ~/srv/<프로젝트
 cd ~/srv/<프로젝트>
 cp .env.example .env && chmod 600 .env   # 도메인, 비밀값(openssl rand -hex 32), BACKUP_AGE_RECIPIENTS
 DOCKER_CONTEXT=colima-selfhost docker compose up -d --build
-infra/mac/install-launchd.sh             # 렌탈ON은 BACKUP_AT=03:45 를 앞에 붙여 시각을 나눈다
+infra/mac/install-launchd.sh             # 시각을 나눈다: crm 03:30(기본), 렌탈ON BACKUP_AT=03:45, 비로소 BACKUP_AT=03:50
 ```
 
-로컬 확인: `curl -H 'Host: <사이트 호스트>' http://127.0.0.1:8090/`(렌탈ON), `:8091`(비로소). 이 포트는 127.0.0.1에만 열린다.
+`<프로젝트>`는 `crm`을 먼저, 그다음 `rentalon`, `biroso` 순서다.
+
+로컬 확인: `curl -H 'Host: <사이트 호스트>' http://127.0.0.1:8090/`(렌탈ON), `:8091`(비로소). CRM은 이 맥의 Chrome에서 `http://app.crm.localhost:3030`(도메인 전, `CRM_SERVER_URL=http://crm.localhost:3030`). 이 포트는 127.0.0.1에만 열린다.
 
 ## 임시 주소 (샘플 단계, 도메인 없이)
 
@@ -39,35 +44,43 @@ infra/mac/install-launchd.sh             # 렌탈ON은 BACKUP_AT=03:45 를 앞�
 | --- | --- | --- | --- |
 | 렌탈ON 사이트·접수 API | `https://mbp-desk.tail73ebb6.ts.net:8443` | 인터넷 (Funnel) | 127.0.0.1:8090 |
 | 비로소 사이트·API | `https://mbp-desk.tail73ebb6.ts.net:10000` | 인터넷 (Funnel) | 127.0.0.1:8091 |
-| 렌탈ON CRM | `https://mbp-desk.tail73ebb6.ts.net:3021` | tailnet만 (Serve) | 127.0.0.1:8092 |
-| 비로소 CRM | `https://mbp-desk.tail73ebb6.ts.net:3022` | tailnet만 (Serve) | 127.0.0.1:8093 |
 
 ```bash
 tailscale funnel --bg --https=8443 http://127.0.0.1:8090
 tailscale funnel --bg --https=10000 http://127.0.0.1:8091
-tailscale serve --bg --https=3021 http://127.0.0.1:8092
-tailscale serve --bg --https=3022 http://127.0.0.1:8093
 ```
 
-`.env`: 사이트 호스트에 `http://mbp-desk.tail73ebb6.ts.net`을 더하고, CRM 호스트는 `http://:81`(포트로 받음), `SITE_URL`·`CRM_PUBLIC_URL`은 위 https 주소, 렌탈ON `LEAD_ALLOWED_ORIGINS`에 사이트 주소를 더한다. Matomo는 이 단계에서 공개하지 않는다(`PUBLIC_MATOMO_URL` 비움). 끌 때는 `tailscale funnel --https=8443 off`처럼 포트별로 끈다. `tailscale serve reset`은 이 맥의 다른 서비스 경로까지 지우므로 쓰지 않는다.
+CRM은 멀티 워크스페이스라 워크스페이스마다 서브도메인이 필요한데, Tailscale은 `*.ts.net` 아래 서브도메인을 만들 수 없다. 그래서 도메인 전에는 이 맥의 브라우저(`*.crm.localhost:3030`)에서만 CRM을 연다.
+
+`.env`: 사이트 호스트에 `http://mbp-desk.tail73ebb6.ts.net`을 더하고, `SITE_URL`은 위 https 주소, 렌탈ON `LEAD_ALLOWED_ORIGINS`에 사이트 주소를 더한다. Matomo는 이 단계에서 공개하지 않는다(`PUBLIC_MATOMO_URL` 비움). 끌 때는 `tailscale funnel --https=8443 off`처럼 포트별로 끈다. `tailscale serve reset`은 이 맥의 다른 서비스 경로까지 지우므로 쓰지 않는다.
 
 ## Cloudflare (도메인을 정한 뒤)
 
 1. 도메인의 네임서버를 Cloudflare로 옮긴다(기존 DNS 레코드, 특히 메일(MX)은 Cloudflare가 가져온 목록에서 빠진 게 없는지 확인).
-2. Zero Trust > Networks > Tunnels에서 프로젝트마다 터널을 하나씩 만들고, 토큰을 `.env`의 `CLOUDFLARE_TUNNEL_TOKEN`에 넣은 뒤 `COMPOSE_PROFILES=public`(렌탈ON에서 AI를 켜면 `public,ai`) 줄의 주석을 풀고 `docker compose up -d`.
-3. 터널의 Public hostname: 사이트·www·crm(·stats)을 모두 `http://caddy:80`으로 보낸다. Caddy가 호스트 이름으로 나눈다.
-4. Zero Trust > Access > Applications에서 `crm.`·`stats.` 호스트에 직원 이메일 인증(One-time PIN) 정책을 건다. 사이트와 `/api/*`, Matomo 수집 경로(`/matomo.php`, `/matomo.js`)는 Access를 걸지 않는다.
-5. SSL/TLS > Edge Certificates에서 Always Use HTTPS를 켠다.
-6. `.env`의 호스트를 실제 도메인으로 바꾼다(`*_SITE`/`*_HOST`는 `http://도메인`, `SITE_URL`·`CRM_PUBLIC_URL`은 `https://도메인`). `docker compose up -d`가 바뀐 값으로 다시 띄우고, builder가 새 주소로 사이트를 다시 만든다.
+2. Zero Trust > Networks > Tunnels에서 프로젝트(`crm`, `rentalon`, `biroso`)마다 터널을 하나씩 만들고, 토큰을 `.env`의 `CLOUDFLARE_TUNNEL_TOKEN`에 넣은 뒤 `COMPOSE_PROFILES=public`(렌탈ON에서 AI를 켜면 `public,ai`)으로 두고 `docker compose up -d`.
+3. 사이트 터널의 Public hostname: 사이트·www(·stats)를 `http://caddy:80`으로 보낸다. Caddy가 호스트 이름으로 나눈다.
+4. CRM 터널의 Public hostname: `*.<CRM 도메인>`(와일드카드)을 `http://access-proxy:3100`으로 보낸다. Cloudflare 무료 인증서는 한 단계 아래(`*.example.com`)만 덮으므로, CRM은 전용 도메인의 바로 아래 주소(`app.`, `rentalon.`, `biroso.`)를 쓴다. `rentalon.crm.example.com`처럼 두 단계 아래는 유료 인증서(Advanced Certificate Manager)가 있어야 한다.
+5. Zero Trust > Access > Applications에서 `*.<CRM 도메인>`과 `stats.` 호스트에 직원 이메일 인증(One-time PIN) 정책을 건다. 사이트와 `/api/*`, Matomo 수집 경로(`/matomo.php`, `/matomo.js`)는 Access를 걸지 않는다.
+6. SSL/TLS > Edge Certificates에서 Always Use HTTPS를 켠다.
+7. `.env`의 호스트를 실제 도메인으로 바꾼다. 사이트는 `*_SITE`/`SITE_HOSTS`에 `http://도메인`, `SITE_URL`에 `https://도메인`, CRM은 `crm/.env`의 `CRM_SERVER_URL=https://<CRM 도메인>`(`app.`을 붙이지 않는다). `docker compose up -d`가 바뀐 값으로 다시 띄우고, builder가 새 주소로 사이트를 다시 만든다.
 
 ## Twenty
 
-각 저장소 README의 "처음 설치/설정" 순서(관리자 계정 → 구성 스크립트 → 역할 키)를 `https://crm.<도메인>`에서 그대로 따른다. 구성 스크립트는 맥에서 돌린다.
+1. `https://app.<CRM 도메인>`(도메인 전에는 `http://app.crm.localhost:3030`)에서 가입하고 첫 워크스페이스 "렌탈ON"을 만든다.
+2. 그 계정을 서버 관리자로 만든다(멀티 워크스페이스에서는 자동으로 되지 않는다).
+   ```bash
+   cd ~/srv/crm && DOCKER_CONTEXT=colima-selfhost docker compose exec -T twenty-db \
+     psql -U twenty -d twenty -c "update core.\"user\" set \"canAccessFullAdminPanel\"=true, \"canImpersonate\"=true where email='<가입 이메일>'"
+   ```
+3. 워크스페이스 메뉴에서 "비로소한의원" 워크스페이스를 하나 더 만든다. 각 워크스페이스의 설정 > 도메인에서 서브도메인을 `rentalon`, `biroso`로 바꾼다.
+4. 각 저장소 README의 "처음 설치/설정" 순서(관리자 키 → 구성 스크립트 → 역할 키)를 그 워크스페이스에서 따른다. 키는 워크스페이스마다 따로 만든다. 구성 스크립트는 맥에서 돌린다.
 
 ```bash
 cd ~/srv/<프로젝트>/crm   # 비로소는 crm/setup_clinic_objects.py
-TWENTY_URL=https://crm.<도메인> TWENTY_API_KEY=<관리자 키> python3 <스크립트>
+TWENTY_URL=https://<워크스페이스>.<CRM 도메인> TWENTY_API_KEY=<관리자 키> python3 <스크립트>
 ```
+
+- 앱 컨테이너는 `http://crm-twenty:3000`으로 부른다. API 키에 워크스페이스가 들어 있어 주소는 같아도 된다.
 
 - Vercel 배포 훅 대신: Twenty 워크플로의 HTTP 요청을 `POST http://builder:8080/rebuild`, 헤더 `Authorization: Bearer <CRON_SECRET>`로 둔다. 빠져도 매일 03:00에 다시 빌드한다.
 - 비로소 환불 워크플로: `POST http://api:8788/v1/orders/refund`, `Authorization: Bearer <ADMIN_SECRET>`.
@@ -84,7 +97,7 @@ cd ~/srv/<프로젝트> && git pull && DOCKER_CONTEXT=colima-selfhost docker com
 
 ## 백업과 복원
 
-- `infra/mac/backup.sh`가 Twenty DB(pg_dump), Twenty 업로드 파일, 접속기록·파기기록, Matomo DB, `.env`를 묶어 age 공개키(`BACKUP_AGE_RECIPIENTS`)로 암호화한다. 결과는 `~/srv/backups/<프로젝트>/`, 상태는 같은 폴더의 `status.log`, 실패하면 맥 알림이 뜬다.
+- `infra/mac/backup.sh`가 그 프로젝트에 있는 것만 묶는다. `crm`은 Twenty DB(pg_dump, 두 워크스페이스 모두), 업로드 파일, 접속기록, `rentalon`은 파기기록과 Matomo DB, 모두 `.env`. 이것을 age 공개키(`BACKUP_AGE_RECIPIENTS`)로 암호화한다. 결과는 `~/srv/backups/<프로젝트>/`, 상태는 같은 폴더의 `status.log`, 실패하면 맥 알림이 뜬다.
 - 복호화 개인키는 이 맥에 두지 않는다. 맥을 잃어버려도 백업 파일만으로는 내용을 볼 수 없게 하려는 것이다. 키는 비밀번호 관리자와 USB 등 두 곳에 둔다.
 - 외장 디스크: `BACKUP_COPY_DIRS=/Volumes/<디스크>/selfhost-backups`(여러 곳은 `:`로 구분). 연결되지 않은 날은 건너뛰고 `status.log`에 SKIP을 남긴다. 외장 디스크는 APFS(암호화)로 포맷한다.
 - 국내 클라우드: `rclone config`로 네이버 클라우드 Object Storage(S3 호환, 엔드포인트 `https://kr.object.ncloudstorage.com`) 리모트를 만들고 `BACKUP_RCLONE_REMOTE=<리모트>:<버킷>/<프로젝트>`. 버킷은 비공개로 두고 그 버킷만 쓸 수 있는 키를 쓴다.
@@ -92,8 +105,8 @@ cd ~/srv/<프로젝트> && git pull && DOCKER_CONTEXT=colima-selfhost docker com
 - 복원 테스트(분기마다 한 번, 그리고 실제 데이터를 넣은 직후):
 
 ```bash
-cd ~/srv/<프로젝트>
-DOCKER_CONTEXT=colima-selfhost infra/mac/restore-test.sh ~/srv/backups/<프로젝트>/<파일>.tar.age <개인키 파일>
+cd ~/srv/crm
+DOCKER_CONTEXT=colima-selfhost infra/mac/restore-test.sh ~/srv/backups/crm/<파일>.tar.age <개인키 파일>
 ```
 
 임시 PostgreSQL(네트워크 없음)에 복원하고 워크스페이스별 고객 수를 운영 DB와 나란히 보여 준 뒤, 임시 컨테이너와 파일을 지운다. 실제 복구는 같은 방식으로 풀어 `pg_restore`로 새 `twenty-db`에 넣고, 업로드 파일 tar를 `twenty-files` 볼륨에 푼다.
@@ -117,7 +130,7 @@ DOCKER_CONTEXT=colima-selfhost infra/mac/restore-test.sh ~/srv/backups/<프로�
 ## 분실·도난 때
 
 1. 나의 Mac 찾기로 잠그고, 찾을 수 없으면 지운다.
-2. Cloudflare에서 두 터널을 삭제(또는 토큰 재발급)한다. 다른 기기에서 같은 토큰으로 사이트를 가로챌 수 없게 된다.
+2. Cloudflare에서 세 터널을 삭제(또는 토큰 재발급)한다. 다른 기기에서 같은 토큰으로 사이트를 가로챌 수 없게 된다.
 3. Twenty API 키, 나이스페이 키, `CRON_SECRET`·`ADMIN_SECRET`·`REVIEW_LINK_SECRET`을 새로 만든다.
 4. 다른 맥에서 "처음 설치"를 하고 최근 백업을 복원한다.
 5. 개인정보 유출 가능성이 있으면 72시간 안에 신고·통지 의무가 있는지 확인한다(개인정보보호법 제34조). 한의원 건강정보는 민감정보다.
