@@ -38,7 +38,8 @@ services:
     image: caddy:2.11.7
     restart: unless-stopped
     # 로컬 확인용. 127.0.0.1에만 묶어 밖에서는 닿지 않는다.
-    ports: ["127.0.0.1:${LOCAL_HTTP_PORT:-8091}:80"]
+    # CRM_SITE(CRM_HOST)를 http://:81 로 두면 CRM은 81번으로 받는다(임시 주소 단계, Tailscale Serve용).
+    ports: ["127.0.0.1:${LOCAL_HTTP_PORT:-8091}:80", "127.0.0.1:${LOCAL_CRM_PORT:-8093}:81"]
     environment:
       SITE_HOSTS: ${SITE_HOSTS}
       CRM_HOST: ${CRM_HOST}

@@ -31,7 +31,27 @@ infra/mac/install-launchd.sh             # 렌탈ON은 BACKUP_AT=03:45 를 앞�
 
 로컬 확인: `curl -H 'Host: <사이트 호스트>' http://127.0.0.1:8090/`(렌탈ON), `:8091`(비로소). 이 포트는 127.0.0.1에만 열린다.
 
-## Cloudflare
+## 임시 주소 (샘플 단계, 도메인 없이)
+
+도메인을 정하기 전에는 Cloudflare 대신 Tailscale Funnel로 고정 주소를 쓴다. 무료이고 재시동해도 주소가 바뀌지 않는다(Cloudflare 무료 Quick Tunnel은 계정·도메인 없이 되지만 다시 뜰 때마다 주소가 바뀐다).
+
+| 대상 | 주소 | 공개 범위 | 로컬 포트 |
+| --- | --- | --- | --- |
+| 렌탈ON 사이트·접수 API | `https://mbp-desk.tail73ebb6.ts.net:8443` | 인터넷 (Funnel) | 127.0.0.1:8090 |
+| 비로소 사이트·API | `https://mbp-desk.tail73ebb6.ts.net:10000` | 인터넷 (Funnel) | 127.0.0.1:8091 |
+| 렌탈ON CRM | `https://mbp-desk.tail73ebb6.ts.net:3021` | tailnet만 (Serve) | 127.0.0.1:8092 |
+| 비로소 CRM | `https://mbp-desk.tail73ebb6.ts.net:3022` | tailnet만 (Serve) | 127.0.0.1:8093 |
+
+```bash
+tailscale funnel --bg --https=8443 http://127.0.0.1:8090
+tailscale funnel --bg --https=10000 http://127.0.0.1:8091
+tailscale serve --bg --https=3021 http://127.0.0.1:8092
+tailscale serve --bg --https=3022 http://127.0.0.1:8093
+```
+
+`.env`: 사이트 호스트에 `http://mbp-desk.tail73ebb6.ts.net`을 더하고, CRM 호스트는 `http://:81`(포트로 받음), `SITE_URL`·`CRM_PUBLIC_URL`은 위 https 주소, 렌탈ON `LEAD_ALLOWED_ORIGINS`에 사이트 주소를 더한다. Matomo는 이 단계에서 공개하지 않는다(`PUBLIC_MATOMO_URL` 비움). 끌 때는 `tailscale funnel --https=8443 off`처럼 포트별로 끈다. `tailscale serve reset`은 이 맥의 다른 서비스 경로까지 지우므로 쓰지 않는다.
+
+## Cloudflare (도메인을 정한 뒤)
 
 1. 도메인의 네임서버를 Cloudflare로 옮긴다(기존 DNS 레코드, 특히 메일(MX)은 Cloudflare가 가져온 목록에서 빠진 게 없는지 확인).
 2. Zero Trust > Networks > Tunnels에서 프로젝트마다 터널을 하나씩 만들고, 토큰을 `.env`의 `CLOUDFLARE_TUNNEL_TOKEN`에 넣은 뒤 `COMPOSE_PROFILES=public`(렌탈ON에서 AI를 켜면 `public,ai`) 줄의 주석을 풀고 `docker compose up -d`.
