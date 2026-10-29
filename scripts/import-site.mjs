@@ -134,10 +134,12 @@ const firstImage = (o) => {
 const allImages = (o) => [...(o.featured_images ?? [])].sort((a, b) => a.sort_order - b.sort_order).map((i) => i.default_image?.url).filter(Boolean);
 const htmlText = (h) => String(h ?? "").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim();
 
+// 원본 플랫폼 내부 값(redirectProductId, isAddOne 같은 영문 키)은 손님에게 보일 내용이 아니라 뺀다
+const internalKey = (k) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && !ATTR_LABEL[k];
 function attributesText(a) {
   if (!a) return "";
-  if (Array.isArray(a)) return a.filter((x) => x.name && x.name !== "isAddOne").map((x) => `${x.name}: ${x.value}`).join("\n");
-  return Object.entries(a).map(([k, v]) => `${ATTR_LABEL[k] ?? k}: ${v}`).join("\n");
+  if (Array.isArray(a)) return a.filter((x) => x.name && !internalKey(x.name)).map((x) => `${x.name}: ${x.value}`).join("\n");
+  return Object.entries(a).filter(([k]) => !internalKey(k)).map(([k, v]) => `${ATTR_LABEL[k] ?? k}: ${v}`).join("\n");
 }
 
 async function main() {
