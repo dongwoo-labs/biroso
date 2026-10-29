@@ -17,12 +17,18 @@ copies=$(envval BACKUP_COPY_DIRS)
 remote=$(envval BACKUP_RCLONE_REMOTE)
 [ -n "$recipients" ] || { echo "BACKUP_AGE_RECIPIENTS가 비어 있습니다" >&2; exit 1; }
 
-notify_fail() { osascript -e "display notification \"$project 백업 실패: $1\" with title \"셀프호스팅 백업\"" >/dev/null 2>&1 || true; echo "$(date -u +%FT%TZ) FAIL $1" >>"$dir/status.log"; }
-trap 'notify_fail "줄 $LINENO"' ERR
-
 mkdir -p "$dir"
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+# 실패하면 알림을 띄우고 status.log에 남긴다. 평문 작업 폴더는 성공·실패와 관계없이 지운다.
+finish() {
+  local rc=$?
+  rm -rf "$work"
+  if [ "$rc" -ne 0 ]; then
+    echo "$(date -u +%FT%TZ) FAIL exit $rc" >>"$dir/status.log"
+    osascript -e "display notification \"$project 백업 실패 (exit $rc)\" with title \"셀프호스팅 백업\"" >/dev/null 2>&1 || true
+  fi
+}
+trap finish EXIT
 services=$(docker compose config --services)
 has() { grep -qx "$1" <<<"$services"; }
 
@@ -39,9 +45,7 @@ tar -C "$work" -cf - . | age "${args[@]}" >"$dir/$name.part"
 mv "$dir/$name.part" "$dir/$name"
 find "$dir" -name "$project-*.tar.age" -mtime +"$keep" -delete
 
-IFS=: read -ra targets <<<"$copies"
-for t in "${targets[@]}"; do
-  [ -n "$t" ] || continue
+for t in $(tr ':' ' ' <<<"$copies"); do
   if [ -d "$(dirname "$t")" ]; then
     mkdir -p "$t" && cp "$dir/$name" "$t/" && find "$t" -name "$project-*.tar.age" -mtime +"$keep" -delete
   else

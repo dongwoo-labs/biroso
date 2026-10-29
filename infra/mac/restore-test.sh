@@ -19,7 +19,12 @@ sleep 2
 docker exec -i "$name" pg_restore -U twenty -d twenty --no-owner <"$work/twenty.dump"
 
 count_sql="select string_agg(format('select %L as ws, count(*) from %I.person', schema_name, schema_name), ' union all ') from information_schema.schemata where schema_name like 'workspace\_%'"
-counts() { local q; q=$("$@" psql -U twenty -d twenty -Atc "$count_sql"); [ -n "$q" ] && "$@" psql -U twenty -d twenty -Atc "$q order by 1"; }
+counts() {
+  local q
+  echo "core 테이블 $("$@" psql -U twenty -d twenty -Atc "select count(*) from information_schema.tables where table_schema='core'")개"
+  q=$("$@" psql -U twenty -d twenty -Atc "$count_sql")
+  if [ -n "$q" ]; then "$@" psql -U twenty -d twenty -Atc "$q order by 1"; else echo "(워크스페이스 없음)"; fi
+}
 echo "== 복원본 (워크스페이스|person 수)"; counts docker exec "$name"
 echo "== 운영 DB (지금)"; counts docker compose exec -T twenty-db
 for f in twenty-files.tar access-logs.tar; do [ -f "$work/$f" ] && echo "$f: $(tar -tf "$work/$f" | wc -l | tr -d ' ')개 항목"; done

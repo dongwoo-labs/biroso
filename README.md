@@ -48,6 +48,15 @@
 
 5. 나이스페이 가맹점 관리자에서 결제 도메인으로 배포 주소를 등록한다.
 
+## 맥 셀프호스팅
+
+운영은 맥북 한 대에서 docker compose로 한다(`docker-compose.yml`, Cloudflare Tunnel). Vercel 함수(`api/`)와 `vercel.json`은 되돌릴 때를 위해 남겨 둔다.
+
+- `server/server.mjs`가 `server/handler.mjs`를 node:http로 띄우고, Caddy가 `/api/*`를 넘긴다(주소는 Vercel 때와 같다).
+- 배포 훅·크론 대신 `builder`(재빌드)와 `cron`(03:00 재빌드, 04:00 파기)이 돈다.
+- Twenty는 렌탈ON과 따로 띄우고, 앞에 접속기록 프록시(`services/access-log-proxy`)를 둔다.
+- 설치, Cloudflare, 백업·복원, 맥 보호 조치: `infra/mac/README.md`
+
 ## 개인정보
 
 - 건강정보(문진)는 `문진` 객체에 따로 두고 별도 동의(개인정보보호법 제23조)를 받는다. Twenty 역할에서 문진 읽기를 진료 담당자로만 열어 두는 것을 권한다.
