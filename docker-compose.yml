@@ -1,0 +1,97 @@
+# 비로소한의원 맥 셀프호스팅 스택. CRM은 공용 Twenty(~/srv/crm, 멀티 워크스페이스)의 biroso 워크스페이스를 쓴다
+#   cloudflared  Cloudflare Tunnel. 밖에서 들어오는 포트를 열지 않고 Cloudflare로 나가는 연결만 쓴다(COMPOSE_PROFILES=public)
+#   caddy        도메인별 라우팅: 홈페이지 정적 파일, /api/* → api
+#   api          주문·결제·예약·환불·파기 API (server/server.mjs)
+#   builder      Twenty 콘텐츠로 홈페이지를 다시 빌드한다(Vercel 배포 훅 대신)
+#   cron         매일 03:00 재빌드, 04:00 파기 (Vercel 크론 대신, 한국 시간)
+
+name: biroso
+
+x-app-env: &app-env
+  TWENTY_URL: http://crm-twenty:3000
+  TWENTY_API_KEY: ${TWENTY_API_KEY:-}
+  CRON_SECRET: ${CRON_SECRET}
+  SITE_URL: ${SITE_URL}
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.0
+    profiles: [public]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on: [caddy]
+
+  caddy:
+    image: caddy:2.11.7
+    restart: unless-stopped
+    # 로컬 확인용. 127.0.0.1에만 묶어 밖에서는 닿지 않는다.
+    ports: ["127.0.0.1:${LOCAL_HTTP_PORT:-8091}:80"]
+    environment:
+      SITE_HOSTS: ${SITE_HOSTS}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - site:/srv/site:ro
+      - caddy-data:/data
+    depends_on: [api]
+
+  api:
+    image: biroso/site:local
+    build: .
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      NOTICE_VERSIONS: ${NOTICE_VERSIONS:-2026-11-01}
+      TRUST_PROXY: "1"
+      NICEPAY_CLIENT_ID: ${NICEPAY_CLIENT_ID:-}
+      NICEPAY_SECRET_KEY: ${NICEPAY_SECRET_KEY:-}
+      ADMIN_SECRET: ${ADMIN_SECRET:-}
+      INTAKE_RETENTION_DAYS: ${INTAKE_RETENTION_DAYS:-365}
+      PENDING_ORDER_HOURS: ${PENDING_ORDER_HOURS:-24}
+    networks:
+      default:
+      crm:
+        # Twenty 워크플로가 부르는 이름. crm 네트워크에서는 두 회사의 서비스 이름이 겹친다.
+        aliases: [biroso-api]
+
+  builder:
+    image: biroso/site:local
+    restart: unless-stopped
+    command: ["node", "infra/builder.mjs"]
+    user: root
+    environment:
+      <<: *app-env
+      TWENTY_CONTENT_KEY: ${TWENTY_CONTENT_KEY:-}
+      PUBLIC_SITE_URL: ${SITE_URL}
+      PUBLIC_LIVE: ${PUBLIC_LIVE:-}
+      PUBLIC_GA4_ID: ${PUBLIC_GA4_ID:-}
+      PUBLIC_NAVER_SITE_VERIFICATION: ${PUBLIC_NAVER_SITE_VERIFICATION:-}
+      PUBLIC_GOOGLE_SITE_VERIFICATION: ${PUBLIC_GOOGLE_SITE_VERIFICATION:-}
+    volumes: [site:/site]
+    networks:
+      default:
+      crm:
+        # Twenty 워크플로가 부르는 이름. crm 네트워크에서는 두 회사의 서비스 이름이 겹친다.
+        aliases: [biroso-builder]
+
+  cron:
+    image: biroso/site:local
+    restart: unless-stopped
+    command: ["node", "infra/cron.mjs"]
+    environment:
+      CRON_SECRET: ${CRON_SECRET}
+      JOBS: |
+        03:00 POST http://builder:8080/rebuild
+        04:00 GET http://api:8788/v1/purge
+    depends_on: [api, builder]
+
+networks:
+  # 공용 Twenty 스택(~/srv/crm)이 만든다. 그 스택을 먼저 띄운다.
+  crm:
+    external: true
+
+volumes:
+  site:
+  caddy-data:
