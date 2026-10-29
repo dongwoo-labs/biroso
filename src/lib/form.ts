@@ -39,3 +39,24 @@ export const numOrNull = (v: FormDataEntryValue | null) => {
   return String(v ?? "").trim() && Number.isFinite(n) ? n : null;
 };
 export const str = (v: FormDataEntryValue | null) => String(v ?? "").trim();
+
+// 문진 칸(IntakeFields)을 API 형태로. diet가 아니면 키·몸무게·복용 경험은 보내지 않는다.
+export function readIntake(fd: FormData, diet: boolean) {
+  const all = (k: string) => fd.getAll(k).map(String);
+  return {
+    sex: str(fd.get("intake.sex")), birthYear: numOrNull(fd.get("intake.birthYear")),
+    heightCm: diet ? numOrNull(fd.get("intake.heightCm")) : null, weightKg: diet ? numOrNull(fd.get("intake.weightKg")) : null,
+    pregnancy: str(fd.get("intake.sex")) === "M" ? "NONE" : str(fd.get("intake.pregnancy")) || "NONE",
+    diseases: all("intake.diseases"), conditions: str(fd.get("intake.conditions")),
+    recentMeds: all("intake.recentMeds"), medications: str(fd.get("intake.medications")),
+    allergies: str(fd.get("intake.allergies")), dietHistory: diet ? str(fd.get("intake.dietHistory")) : "", symptoms: str(fd.get("intake.symptoms")),
+  };
+}
+
+// 하나 이상 골라야 하는 선택 칸(data-multi)이 비었으면 오류를 더한다
+export function checkMulti(form: HTMLFormElement, local: Record<string, string>) {
+  form.querySelectorAll<HTMLElement>("[data-multi]").forEach((g) => {
+    if (g.closest("[hidden]") || g.querySelector("input:checked")) return;
+    local[g.dataset.multi!] ??= "하나 이상 골라 주세요. 없으면 '해당 없음'을 골라 주세요.";
+  });
+}

@@ -24,7 +24,8 @@
         "/media/0a472ba02898bbf5.webp"
       ],
       "sortOrder": 0,
-      "published": true
+      "published": true,
+      "salesChannel": "OWN"
     },
     {
       "slug": "jqpp87t2dosdyog5wjeqjwn7",
@@ -215,7 +216,10 @@
         "/media/fa47f1f7a896d3dd.webp"
       ],
       "sortOrder": 300,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac197344d55f6564dae436b",
+      "sooOption": "10환 2박스 【-20%】"
     },
     {
       "slug": "syrqkeunrjvrxv2yltfmhxzl",
@@ -238,7 +242,10 @@
         "/media/fa47f1f7a896d3dd.webp"
       ],
       "sortOrder": 300,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac197344d55f6564dae436b",
+      "sooOption": "30환 3박스 【-20%】"
     },
     {
       "slug": "j0y7irzrlc3jqonuysy1qhtc",
@@ -261,7 +268,10 @@
         "/media/ef3b6ea166a84455.webp"
       ],
       "sortOrder": 300,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac195821152e7685ffbc08f",
+      "sooOption": "30환 3박스 【-20%】"
     },
     {
       "slug": "i46vmfpj1hdg6au5hu242c06",
@@ -284,7 +294,10 @@
         "/media/ef3b6ea166a84455.webp"
       ],
       "sortOrder": 300,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac195821152e7685ffbc08f",
+      "sooOption": "10환 3박스 【-20%】"
     },
     {
       "slug": "eh4lccyner33ic72yg5jvvpi",
@@ -307,7 +320,10 @@
         "/media/fa47f1f7a896d3dd.webp"
       ],
       "sortOrder": 300,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac197344d55f6564dae436b",
+      "sooOption": "10환 3박스 【-20%】"
     },
     {
       "slug": "o2xnhz115xil74gbnp9jzfu4",
@@ -330,7 +346,10 @@
         "/media/fa47f1f7a896d3dd.webp"
       ],
       "sortOrder": 301,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac197344d55f6564dae436b",
+      "sooOption": "10환 단품 【-15%】"
     },
     {
       "slug": "ki5kwcf3woomiflr1e1bs57x",
@@ -353,7 +372,10 @@
         "/media/ef3b6ea166a84455.webp"
       ],
       "sortOrder": 302,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac195821152e7685ffbc08f",
+      "sooOption": "10환 단품 【-15%】"
     },
     {
       "slug": "vbxmcni6nxv6ix30kk7eqp1b",
@@ -376,7 +398,10 @@
         "/media/fa47f1f7a896d3dd.webp"
       ],
       "sortOrder": 303,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac197344d55f6564dae436b",
+      "sooOption": "30환 단품 【-15%】"
     },
     {
       "slug": "lwktko95x2u6d433pchjtzan",
@@ -399,7 +424,10 @@
         "/media/fa47f1f7a896d3dd.webp"
       ],
       "sortOrder": 304,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac197344d55f6564dae436b",
+      "sooOption": "30환 2박스 【-20%】"
     },
     {
       "slug": "vyjjt8a9loqfp0ugjks2ymp7",
@@ -422,7 +450,10 @@
         "/media/ef3b6ea166a84455.webp"
       ],
       "sortOrder": 305,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac195821152e7685ffbc08f",
+      "sooOption": "30환 2박스 【-20%】"
     },
     {
       "slug": "p6mdx0wzkbuz508vf54d6y2w",
@@ -445,7 +476,10 @@
         "/media/ef3b6ea166a84455.webp"
       ],
       "sortOrder": 306,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac195821152e7685ffbc08f",
+      "sooOption": "30환 단품 【-15%】"
     },
     {
       "slug": "w8hh40buambvjs2nlrxqg1db",
@@ -468,7 +502,10 @@
         "/media/ef3b6ea166a84455.webp"
       ],
       "sortOrder": 307,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac195821152e7685ffbc08f",
+      "sooOption": "10환 2박스 【-20%】"
     },
     {
       "slug": "qdtzyx9xfk5aw0iocnifrspx",
@@ -491,7 +528,10 @@
         "/media/c1d7a40bd335ec8d.webp"
       ],
       "sortOrder": 308,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "691578562a3942a2543b7f3c",
+      "sooOption": "30포 단품 【-15%】"
     },
     {
       "slug": "khnwgpxd1x5oeth8v5yc7b9q",
@@ -514,7 +554,10 @@
         "/media/dfe0e6bf29ed5f89.webp"
       ],
       "sortOrder": 326,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "65b9a9544e7738001aa0370b",
+      "sooOption": "30환"
     },
     {
       "slug": "g9pevgajgzs6l7bt15vpdaim",
@@ -537,7 +580,10 @@
         "/media/015fcbcaa6acf8c3.webp"
       ],
       "sortOrder": 332,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "65b9ae304e7738001aa038bb",
+      "sooOption": "30환"
     },
     {
       "slug": "gxrhdffh7g9u7xavtn5zu5li",
@@ -560,7 +606,10 @@
         "/media/009144bb487bc022.webp"
       ],
       "sortOrder": 335,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "65b9afa84e7738001aa03946",
+      "sooOption": "10환"
     },
     {
       "slug": "abmzci9w14ydfcyguwd7ez3s",
@@ -583,7 +632,10 @@
         "/media/015fcbcaa6acf8c3.webp"
       ],
       "sortOrder": 336,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "65b9ae304e7738001aa038bb",
+      "sooOption": "10환"
     },
     {
       "slug": "ezni34lm879z4nr2d8t21yqs",
@@ -606,7 +658,10 @@
         "/media/009144bb487bc022.webp"
       ],
       "sortOrder": 338,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "65b9afa84e7738001aa03946",
+      "sooOption": "30환"
     },
     {
       "slug": "haizydkms2i0jwfbnafm966r",
@@ -629,7 +684,10 @@
         "/media/dfe0e6bf29ed5f89.webp"
       ],
       "sortOrder": 340,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "65b9a9544e7738001aa0370b",
+      "sooOption": "10환"
     },
     {
       "slug": "dorwapd18spogkheq2ooqefq",
@@ -652,7 +710,10 @@
         "/media/653f7d4f9f71cde7.webp"
       ],
       "sortOrder": 400,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac198d14d55f6564dae438e",
+      "sooOption": "30포 2박스 【-20%】"
     },
     {
       "slug": "q9teq16a26f3j8gvhomdg8tr",
@@ -675,7 +736,10 @@
         "/media/653f7d4f9f71cde7.webp"
       ],
       "sortOrder": 400,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac198d14d55f6564dae438e",
+      "sooOption": "30포 단품 【-15%】"
     },
     {
       "slug": "ptpfg3i0knv7z8g3l7cebq8n",
@@ -698,7 +762,10 @@
         "/media/ed1df2e0d16ae32d.webp"
       ],
       "sortOrder": 400,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac199b6ca0ee1c5d149a36e",
+      "sooOption": "30포 2박스 【-20%】"
     },
     {
       "slug": "oykyt8t0wb6fn3bm23wua5hk",
@@ -721,7 +788,10 @@
         "/media/ed1df2e0d16ae32d.webp"
       ],
       "sortOrder": 400,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac199b6ca0ee1c5d149a36e",
+      "sooOption": "30포 단품 【-15%】"
     },
     {
       "slug": "cyo1cj3pe3t2gx0bl282bgyu",
@@ -744,7 +814,10 @@
         "/media/43b5fc1b05eab86a.webp"
       ],
       "sortOrder": 400,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac199f5ca0ee1c5d149a383",
+      "sooOption": "30포 2박스 【-20%】"
     },
     {
       "slug": "lww3p5dhvc2ul9s4who8vrv7",
@@ -767,7 +840,10 @@
         "/media/43b5fc1b05eab86a.webp"
       ],
       "sortOrder": 400,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac199f5ca0ee1c5d149a383",
+      "sooOption": "30포 단품 【-15%】"
     },
     {
       "slug": "wf0bu5keyeoaxeo116ticsif",
@@ -790,7 +866,10 @@
         "/media/653f7d4f9f71cde7.webp"
       ],
       "sortOrder": 400,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac198d14d55f6564dae438e",
+      "sooOption": "30포 3박스 【-20%】"
     },
     {
       "slug": "r7p5w5x5yyt8n2zv8us1s56u",
@@ -813,7 +892,10 @@
         "/media/43b5fc1b05eab86a.webp"
       ],
       "sortOrder": 400,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac199f5ca0ee1c5d149a383",
+      "sooOption": "30포 3박스 【-20%】"
     },
     {
       "slug": "xb0knnn2ysf59c1kqm8xob2x",
@@ -836,7 +918,10 @@
         "/media/ed1df2e0d16ae32d.webp"
       ],
       "sortOrder": 400,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac199b6ca0ee1c5d149a36e",
+      "sooOption": "30포 3박스 【-20%】"
     },
     {
       "slug": "lww0lhx328aq0swra5lvs1k7",
@@ -859,7 +944,10 @@
         "/media/03256726587cc2f5.webp"
       ],
       "sortOrder": 500,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "65b9d00a4e7738001aa03f1b",
+      "sooOption": "1환"
     },
     {
       "slug": "co1iwvpb78jxx2hv5d9bm5fs",
@@ -882,7 +970,10 @@
         "/media/cf41a5c3a60ea7e2.webp"
       ],
       "sortOrder": 500,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "65b9d1414e7738001aa03f55",
+      "sooOption": "1환"
     },
     {
       "slug": "rk7muwvf4vdgag0r8qiw42ld",
@@ -928,7 +1019,10 @@
         "/media/35ea849d7cb71ffe.webp"
       ],
       "sortOrder": 600,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac1acdfd83c1a2a9650ff9a",
+      "sooOption": "3박스 (90포) 【-20%】"
     },
     {
       "slug": "tqdz3uwqg55lmmyc2hu1zfsv",
@@ -1020,7 +1114,10 @@
         "/media/35ea849d7cb71ffe.webp"
       ],
       "sortOrder": 604,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac1acdfd83c1a2a9650ff9a",
+      "sooOption": "1박스 (30포) 【-15%】"
     },
     {
       "slug": "bg6j81c84l2w50e4wemysbrc",
@@ -1043,7 +1140,10 @@
         "/media/35ea849d7cb71ffe.webp"
       ],
       "sortOrder": 605,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "6ac1acdfd83c1a2a9650ff9a",
+      "sooOption": "2박스 (60포) 【-20%】"
     },
     {
       "slug": "kn2e4gzie0i7o3u2zy4n7evv",
@@ -1066,7 +1166,10 @@
         "/media/c708c9221050131e.webp"
       ],
       "sortOrder": 616,
-      "published": true
+      "published": true,
+      "salesChannel": "SOO_STORE",
+      "sooProductId": "69fc36d960485ea5e0237437",
+      "sooOption": "1박스 (30포)"
     },
     {
       "slug": "ey8gi5yle41upxqhste4xihm",

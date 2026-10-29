@@ -21,6 +21,14 @@ const bot = {
 };
 const required = (msg) => z.literal(true, { error: msg });
 
+// 문진 선택지(메디스트림 기본 문진표와 같은 목록). crm/setup_clinic_objects.py의 DISEASES·MEDS와 같아야 한다.
+export const DISEASES = ["NONE", "HEART", "DIABETES", "HYPERTENSION", "HEPATITIS", "NEURO_PSYCH", "RESPIRATORY", "GASTRO", "OSTEOPOROSIS", "HAIR_LOSS", "KIDNEY_URO", "ATOPY", "PROSTATE", "OTHER"];
+export const MEDS = ["NONE", "ANTIDEPRESSANT", "ASTHMA", "HYPERTENSION", "THYROID", "DIABETES", "OTHER"];
+// 하나 이상 골라야 하고, '해당 없음'은 다른 것과 함께 고를 수 없다
+const choices = (values, msg) => z.array(z.enum(values, { error: msg })).min(1, msg).max(values.length)
+  .transform((a) => [...new Set(a)])
+  .refine((a) => !(a.includes("NONE") && a.length > 1), "'해당 없음'과 다른 항목을 함께 고를 수 없어요.");
+
 // 문진(건강정보). 다이어트 상품이면 키·몸무게를 받는다(화면에서 필수로 표시).
 const intakeSchema = z.object({
   sex: z.enum(["F", "M"], { error: "성별을 골라 주세요." }),
@@ -28,12 +36,17 @@ const intakeSchema = z.object({
   heightCm: z.number().min(80).max(230).nullable().optional().default(null),
   weightKg: z.number().min(20).max(250).nullable().optional().default(null),
   pregnancy: z.enum(["NONE", "PREGNANT", "NURSING", "PLANNING"]).optional().default("NONE"),
-  medications: text(500),
+  diseases: choices(DISEASES, "질병 경험을 골라 주세요. 없으면 '해당 없음'을 골라 주세요."),
   conditions: text(500),
+  recentMeds: choices(MEDS, "최근 한 달 동안 먹은 약을 골라 주세요. 없으면 '해당 없음'을 골라 주세요."),
+  medications: text(500),
   allergies: text(300),
   dietHistory: text(300),
   symptoms: text(1000),
-});
+}).superRefine((v, ctx) => {
+  if (v.diseases.includes("OTHER") && !v.conditions) ctx.addIssue({ code: "custom", path: ["conditions"], message: "어떤 질병인지 적어 주세요." });
+  if (v.recentMeds.includes("OTHER") && !v.medications) ctx.addIssue({ code: "custom", path: ["medications"], message: "어떤 약인지 적어 주세요." });
+}).transform((v) => (v.sex === "M" ? { ...v, pregnancy: "NONE" } : v)); // 임신·수유는 여성에게만 묻는다
 
 const consents = z.object({
   privacy: required("개인정보 수집·이용에 동의해 주세요."),
@@ -57,7 +70,10 @@ export const orderSchema = z.object({
   consultTime: text(60),
   payMethod: z.enum(["CARD", "KAKAOPAY", "NAVERPAY"]).optional().default("CARD"),
   intake: intakeSchema,
-  consents: consents.extend({ terms: required("구매 조건을 확인하고 동의해 주세요.") }),
+  consents: consents.extend({
+    terms: required("구매 조건을 확인하고 동의해 주세요."),
+    dosage: required("상품의 복용 방법과 주의사항을 확인해 주세요."),
+  }),
   noticeVersion: z.string().trim().min(1).max(40),
   ...attribution,
   ...bot,
@@ -76,6 +92,16 @@ export const appointmentSchema = z.object({
   time: z.string().regex(/^\d{2}:\d{2}$/, "시간을 골라 주세요."),
   intake: intakeSchema,
   consents,
+  noticeVersion: z.string().trim().min(1).max(40),
+  ...attribution,
+  ...bot,
+});
+
+// 빠른 상담: 이름·휴대폰만 받는다. 건강정보는 받지 않는다(상담 전화 때 묻는다).
+export const consultSchema = z.object({
+  ...person,
+  interest: text(60),
+  consents: z.object({ privacy: required("개인정보 수집·이용에 동의해 주세요."), marketing: z.boolean().optional().default(false) }),
   noticeVersion: z.string().trim().min(1).max(40),
   ...attribution,
   ...bot,
@@ -123,7 +149,8 @@ export function toIntake(intake, links, cfg, now) {
   return {
     ...links,
     sex: intake.sex, birthYear: intake.birthYear, heightCm: intake.heightCm, weightKg: intake.weightKg,
-    pregnancy: intake.pregnancy, medications: intake.medications, conditions: intake.conditions,
+    pregnancy: intake.pregnancy, diseases: intake.diseases, conditions: intake.conditions,
+    recentMeds: intake.recentMeds, medications: intake.medications,
     allergies: intake.allergies, dietHistory: intake.dietHistory, symptoms: intake.symptoms,
     purgeAfter: addDays(now, cfg.intakeRetentionDays),
   };
@@ -132,7 +159,7 @@ export function toIntake(intake, links, cfg, now) {
 // 동의원장에 남길 행. 필수 동의는 동의한 경우에만 접수되므로 항상 '동의'로 남고, 광고 수신은 동의·미동의 모두 남긴다.
 export function toConsentRecords(input, personId, ctx, types) {
   const base = { noticeVersion: input.noticeVersion, collectedAt: ctx.now.toISOString(), collectedIp: ctx.ip, sourceUrl: input.landingPage, personId };
-  const label = { PRIVACY: "개인정보 수집·이용", SENSITIVE: "건강정보 수집·이용", TERMS: "구매 조건·약관", MARKETING: "광고성 정보 수신" };
+  const label = { PRIVACY: "개인정보 수집·이용", SENSITIVE: "건강정보 수집·이용", TERMS: "구매 조건·약관", DOSAGE: "복용 방법·주의사항 확인", MARKETING: "광고성 정보 수신" };
   return types.map((t) => {
     const granted = Boolean(input.consents[t.toLowerCase()]);
     return { ...base, name: `${label[t]} ${granted ? "동의" : "미동의"}`, consentType: t, granted };

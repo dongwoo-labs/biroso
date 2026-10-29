@@ -2,8 +2,9 @@
 // 동의 칸. 칸 이름은 API 경로(consents.*)와 같다. 필수 동의는 따로따로 받는다(건강정보는 개인정보보호법 제23조 별도 동의).
 import notice from "../data/notice.json";
 import clinic from "../data/clinic.json";
-interface Props { terms?: boolean }
-const { terms = false } = Astro.props;
+// dosage: 원내 상품 주문이면 복용 방법·주의사항 확인을 필수로 받는다(메디스트림 문진의 '복용안내문 확인'과 같다).
+interface Props { terms?: boolean; dosage?: boolean }
+const { terms = false, dosage = false } = Astro.props;
 ---
 <fieldset class="space-y-2.5">
   <legend class="sr-only">동의</legend>
@@ -27,6 +28,12 @@ const { terms = false } = Astro.props;
         <p>한약은 의약품이라 원장님 진료 후 처방이 확정돼야 조제·발송돼요. 진료 결과 처방이 어려우면 전액 환불해 드려요.</p>
         <p>처방 확정 전까지 주문을 취소할 수 있고, 조제가 시작된 뒤에는 교환·반품 기준을 따라요. <a href="/terms/" class="text-brand underline">이용약관</a></p>
       </div>
+    </div>
+  )}
+  {dosage && (
+    <div data-field>
+      <label class="flex items-start gap-2.5 text-[15px] font-semibold"><input type="checkbox" name="consents.dosage" class="mt-0.5 size-5 accent-brand" required />[필수] 복용 방법과 주의사항을 확인했어요</label>
+      <p class="ml-7.5 mt-1 text-[13px] text-ink-soft">상품 상세의 복용 방법·주의사항을 읽었고, 원장님 진료 때 안내하는 복용법을 따를게요.</p>
     </div>
   )}
   <label class="flex items-start gap-2.5 text-[15px]"><input type="checkbox" name="consents.marketing" class="mt-0.5 size-5 accent-brand" />[선택] 이벤트·혜택 소식을 문자로 받을게요</label>

@@ -23,13 +23,14 @@ const PRODUCTS = [
   { id: "33333333-3333-3333-3333-333333333333", slug: "soldout", name: "품절 상품", kind: "PAYMENT", published: true, salePrice: won(10000), soldOut: true },
   { id: "44444444-4444-4444-4444-444444444444", slug: "diet-consult", name: "다이어트 처방 상담", kind: "RESERVATION", published: true, telemedicine: true, inPerson: true },
   { id: "55555555-5555-5555-5555-555555555555", slug: "chuna", name: "추나", kind: "RESERVATION", published: true, telemedicine: false, inPerson: true },
+  { id: "66666666-6666-6666-6666-666666666666", slug: "soo", name: "경옥고 수壽 30포", kind: "PAYMENT", published: true, salePrice: won(148700), taxFree: true, salesChannel: "SOO_STORE" },
 ];
 
 // Twenty 대신 메모리에 기록하는 가짜 클라이언트
 function fakeTwenty() {
-  const s = { people: [], orders: [], intakes: [], consents: [], appointments: [], closures: ["2026-11-04"], deleted: [] };
+  const s = { people: [], orders: [], intakes: [], consents: [], appointments: [], consults: [], closures: ["2026-11-04"], deleted: [] };
   const id = (p) => `${p}${Math.random().toString(16).slice(2, 10)}`;
-  const { toProduct } = { toProduct: (p) => ({ ...p, salePrice: p.salePrice ? p.salePrice.amountMicros / 1e6 : null, soldOut: Boolean(p.soldOut), taxFree: Boolean(p.taxFree), freeShipping: Boolean(p.freeShipping), telemedicine: Boolean(p.telemedicine), inPerson: Boolean(p.inPerson) }) };
+  const { toProduct } = { toProduct: (p) => ({ salesChannel: "OWN", ...p, salePrice: p.salePrice ? p.salePrice.amountMicros / 1e6 : null, soldOut: Boolean(p.soldOut), taxFree: Boolean(p.taxFree), freeShipping: Boolean(p.freeShipping), telemedicine: Boolean(p.telemedicine), inPerson: Boolean(p.inPerson) }) };
   return {
     s,
     async productsBySlugs(slugs) { return PRODUCTS.filter((p) => slugs.includes(p.slug) || slugs.includes(p.id)).map(toProduct); },
@@ -41,6 +42,8 @@ function fakeTwenty() {
     async findOrder(no) { return s.orders.find((o) => o.name === no) ?? null; },
     async updateOrder(oid, patch) { Object.assign(s.orders.find((o) => o.id === oid), patch); },
     async createIntake(r) { const i = { id: id("i"), ...r }; s.intakes.push(i); return i; },
+    async createConsult(r) { const c = { id: id("c"), ...r }; s.consults.push(c); return c; },
+    async listExpiredConsults(today) { return s.consults.filter((c) => c.purgeAfter < today); },
     // Twenty 고유값 필드처럼 slotKey가 겹치면 거절한다. 동시 요청이 겹치도록 한 박자 쉰다.
     async createAppointment(r) {
       await new Promise((ok) => setTimeout(ok, 5));
@@ -54,9 +57,9 @@ function fakeTwenty() {
     async listStalePendingOrders(before) { return s.orders.filter((o) => o.orderStatus === "PENDING" && o.createdAt < before); },
     async listExpiredIntakes(today) { return s.intakes.filter((i) => i.purgeAfter < today); },
     async intakesOfOrder(oid) { return s.intakes.filter((i) => i.clinicOrderId === oid); },
-    async hardDelete(plural, rid) { s.deleted.push(`${plural}/${rid}`); for (const k of ["orders", "intakes"]) s[k] = s[k].filter((x) => x.id !== rid); },
+    async hardDelete(plural, rid) { s.deleted.push(`${plural}/${rid}`); for (const k of ["orders", "intakes", "consults"]) s[k] = s[k].filter((x) => x.id !== rid); },
     async deletePersonIfOrphan(pid) {
-      if (s.orders.some((o) => o.customerId === pid) || s.appointments.some((a) => a.customerId === pid)) return false;
+      if (["orders", "appointments", "consults"].some((k) => s[k].some((x) => x.customerId === pid))) return false;
       s.people = s.people.filter((p) => p.id !== pid); s.deleted.push(`people/${pid}`); return true;
     },
   };
@@ -74,14 +77,14 @@ function fakeNicepay({ approveFails = false, approveError = null, netCancelCode 
       if (approveError) throw approveError;
       return { resultCode: "0000", status: "paid", tid, amount, orderId, paidAt: "2026-10-29T10:00:00.000+0900", payMethod: "card", receiptUrl: "https://npg.nicepay.co.kr/receipt" };
     },
-    async cancel(tid, orderId, reason, amt) { calls.push(["cancel", tid, orderId, reason, amt]); return { resultCode: "0000", balanceAmt: 0 }; },
+    async cancel(tid, orderId, reason, amt, taxFree) { calls.push(["cancel", tid, orderId, reason, amt, taxFree]); return { resultCode: "0000", balanceAmt: 0 }; },
     async netCancel(orderId) { calls.push(["netcancel", orderId]); return { resultCode: netCancelCode }; },
   };
 }
 
 const cfg = {
-  allowedOrigins: ["https://biroso.vercel.app"], siteUrl: "https://biroso.vercel.app", noticeVersions: ["2026-11-01"],
-  rateLimitPer10Min: 50, minFillMs: 2000, trustProxy: false, intakeRetentionDays: 365, pendingOrderHours: 24,
+  allowedOrigins: ["https://biroso.vercel.app"], siteUrl: "https://biroso.vercel.app", noticeVersions: ["2026-11-02"],
+  rateLimitPer10Min: 50, minFillMs: 2000, trustProxy: false, intakeRetentionDays: 365, consultRetentionDays: 90, pendingOrderHours: 24,
   nicepay: { clientId: "S2_test", secretKey: SECRET, apiUrl: "https://sandbox-api.nicepay.co.kr" },
   shipping: SHIPPING, hours: HOURS, slotMinutes: 30, slotCapacity: 1, slotLeadHours: 2, slotDays: 30,
   cronSecret: "cron", adminSecret: "admin", tel: "02-2039-0520",
@@ -94,11 +97,14 @@ async function withServer(fn, { twenty = fakeTwenty(), nicepay = fakeNicepay() }
   try { await fn(base, twenty, nicepay); } finally { srv.close(); }
 }
 
-const intake = { sex: "F", birthYear: 1990, heightCm: 162, weightKg: 68, pregnancy: "NONE", medications: "", conditions: "", allergies: "", dietHistory: "처음", symptoms: "" };
+const intake = {
+  sex: "F", birthYear: 1990, heightCm: 162, weightKg: 68, pregnancy: "NONE", diseases: ["NONE"], conditions: "", recentMeds: ["NONE"], medications: "",
+  allergies: "", dietHistory: "처음", symptoms: "",
+};
 const order = (over = {}) => ({
   name: "김영희", phone: "010-5555-6666", items: [{ slug: "biyulhwan", qty: 1 }], payMethod: "CARD",
   recipient: { zip: "04104", address1: "서울 마포구 굴레방로 9-1", address2: "2층", memo: "" }, consultTime: "평일 오후",
-  intake, consents: { privacy: true, sensitive: true, terms: true, marketing: false }, noticeVersion: "2026-11-01",
+  intake, consents: { privacy: true, sensitive: true, terms: true, dosage: true, marketing: false }, noticeVersion: "2026-11-02",
   landingPage: "https://biroso.vercel.app/telemedicine/biyulhwan/", formOpenedAt: Date.now() - 10_000, ...over,
 });
 const postJson = (base, path, b, origin = "https://biroso.vercel.app") =>
@@ -146,9 +152,12 @@ test("주문 → 결제 승인: 금액은 서버가 계산하고, 서명·금액
   assert.equal(body.pay.method, "card");
   assert.equal(body.pay.returnUrl, "https://biroso.vercel.app/api/v1/payments/return");
   assert.equal(t.s.orders[0].orderStatus, "PENDING");
+  assert.equal(t.s.orders[0].shippingStatus, "WAITING");
+  assert.equal(t.s.orders[0].deliveryMethod, "PARCEL");
+  assert.deepEqual(t.s.intakes[0].diseases, ["NONE"]);
   assert.equal(t.s.intakes[0].clinicOrderId, t.s.orders[0].id);
   assert.equal(t.s.intakes[0].weightKg, 68);
-  assert.deepEqual(t.s.consents.map((c) => [c.consentType, c.granted]), [["PRIVACY", true], ["SENSITIVE", true], ["TERMS", true], ["MARKETING", false]]);
+  assert.deepEqual(t.s.consents.map((c) => [c.consentType, c.granted]), [["PRIVACY", true], ["SENSITIVE", true], ["TERMS", true], ["DOSAGE", true], ["MARKETING", false]]);
 
   const res = await returnForm(base, { authResultCode: "0000", tid: "T1", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "tok", signature: sign("tok", 46500) });
   assert.equal(res.status, 303);
@@ -233,7 +242,7 @@ test("승인 응답을 읽지 못하면 망취소하고, 망취소도 실패하�
 });
 
 test("필수 동의·주소가 없으면 받지 않고, 방문 수령은 주소 없이 받는다", () => withServer(async (base) => {
-  const noSensitive = await postJson(base, "/api/v1/orders", order({ consents: { privacy: true, sensitive: false, terms: true } }));
+  const noSensitive = await postJson(base, "/api/v1/orders", order({ consents: { privacy: true, sensitive: false, terms: true, dosage: true } }));
   assert.equal(noSensitive.status, 422);
   assert.ok((await noSensitive.json()).fields["consents.sensitive"]);
   const noAddr = await postJson(base, "/api/v1/orders", order({ recipient: {} }));
@@ -260,13 +269,85 @@ test("환불: 처방 확정 전에는 전액 취소, 확정 뒤에는 막는다"
   assert.equal(np.calls.at(-1)[4], undefined); // 항상 전액
 }));
 
-test("환불: 부분 금액은 받지 않는다", () => withServer(async (base, t, np) => {
+test("환불: 일부만 환불하면 부분 환불로 두고, 남은 금액 안에서 다시 환불한다", () => withServer(async (base, t, np) => {
   const body = await (await postJson(base, "/api/v1/orders", order())).json();
   await returnForm(base, { authResultCode: "0000", tid: "T3", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "x", signature: sign("x", 46500) });
-  const res = await fetch(`${base}/api/v1/orders/refund`, { method: "POST", headers: { Authorization: "Bearer admin", "Content-Type": "application/json" }, body: JSON.stringify({ orderNo: body.orderNo, amount: 10000 }) });
-  assert.equal(res.status, 422);
-  assert.equal(t.s.orders[0].orderStatus, "PAID");
-  assert.ok(!np.calls.some((c) => c[0] === "cancel"));
+  const refund = (b) => fetch(`${base}/api/v1/orders/refund`, { method: "POST", headers: { Authorization: "Bearer admin", "Content-Type": "application/json" }, body: JSON.stringify({ orderNo: body.orderNo, ...b }) });
+  const o = () => t.s.orders[0];
+  assert.equal((await refund({ amount: 50000 })).status, 422); // 결제 금액보다 많으면 거절
+  assert.equal((await refund({ amount: 0 })).status, 422);
+
+  // 상품 일부(면세) 10,000원
+  const first = await (await refund({ amount: 10000, reason: "1포 반품" })).json();
+  assert.deepEqual([first.refunded, first.remaining], [10000, 36500]);
+  assert.equal(o().orderStatus, "PARTIAL_REFUNDED");
+  assert.equal(o().refundedAmount.amountMicros, 10000 * 1e6);
+  assert.deepEqual(np.calls.at(-1), ["cancel", "T3", body.orderNo, "1포 반품", 10000, 10000]);
+
+  assert.equal((await refund({ amount: 36501 })).status, 422);
+  // 나머지 전부: 면세 33,000원 + 배송비(과세) 3,500원
+  const rest = await (await refund({})).json();
+  assert.deepEqual([rest.refunded, rest.remaining], [36500, 0]);
+  assert.deepEqual(np.calls.at(-1), ["cancel", "T3", body.orderNo, "고객 요청", 36500, 33000]);
+  assert.equal(o().orderStatus, "REFUNDED");
+  assert.equal(o().shippingStatus, "CANCELLED");
+  assert.equal(o().refundedAmount.amountMicros, 46500 * 1e6);
+}));
+
+test("환불: 처방 확정 주문은 force로 부분 환불해도 처방 상태를 지켜 다음 환불에 다시 force가 필요하다", () => withServer(async (base, t) => {
+  const body = await (await postJson(base, "/api/v1/orders", order())).json();
+  await returnForm(base, { authResultCode: "0000", tid: "T4", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "x", signature: sign("x", 46500) });
+  const refund = (b) => fetch(`${base}/api/v1/orders/refund`, { method: "POST", headers: { Authorization: "Bearer admin", "Content-Type": "application/json" }, body: JSON.stringify({ orderNo: body.orderNo, ...b }) });
+  t.s.orders[0].orderStatus = "PRESCRIBED";
+  assert.equal((await refund({ amount: 3500 })).status, 409);
+  assert.equal((await refund({ amount: 3500, force: true })).status, 200);
+  assert.equal(t.s.orders[0].orderStatus, "PRESCRIBED");
+  assert.equal(t.s.orders[0].refundedAmount.amountMicros, 3500 * 1e6);
+  assert.equal((await refund({ amount: 3500 })).status, 409);
+}));
+
+test("수壽 매장 상품은 비로소 결제로 주문받지 않는다", () => withServer(async (base) => {
+  const r = await postJson(base, "/api/v1/orders", order({ items: [{ slug: "soo", qty: 1 }] }));
+  assert.equal(r.status, 409);
+  assert.match((await r.json()).message, /수壽 매장/);
+}));
+
+test("문진: 질병·복용 약은 하나 이상 고르고, '해당 없음'은 따로, 기타는 내용을 적는다. 남성은 임신·수유를 받지 않는다", () => withServer(async (base, t) => {
+  const bad = async (over) => (await (await postJson(base, "/api/v1/orders", order({ intake: { ...intake, ...over } }))).json()).fields;
+  assert.ok((await bad({ diseases: [] }))["intake.diseases"]);
+  assert.ok((await bad({ diseases: ["NONE", "HEART"] }))["intake.diseases"]);
+  assert.ok((await bad({ recentMeds: ["OTHER"] }))["intake.medications"]);
+  assert.ok((await bad({ diseases: ["CANCER"] }))["intake.diseases.0"]);
+  const noDosage = await postJson(base, "/api/v1/orders", order({ consents: { privacy: true, sensitive: true, terms: true } }));
+  assert.ok((await noDosage.json()).fields["consents.dosage"]);
+  const ok = await postJson(base, "/api/v1/orders", order({ intake: { ...intake, sex: "M", pregnancy: "PREGNANT", diseases: ["HYPERTENSION", "OTHER"], conditions: "통풍", recentMeds: ["HYPERTENSION"] } }));
+  assert.equal(ok.status, 201);
+  assert.deepEqual([t.s.intakes[0].pregnancy, t.s.intakes[0].diseases, t.s.intakes[0].recentMeds], ["NONE", ["HYPERTENSION", "OTHER"], ["HYPERTENSION"]]);
+}));
+
+test("빠른 상담: 이름·휴대폰·동의만 받고, 보관 기간이 지나면 신청자와 함께 지운다", () => withServer(async (base, t) => {
+  const consult = (over = {}) => ({
+    name: "이민수", phone: "010-7777-8888", interest: "다이어트 한약", consents: { privacy: true, marketing: false },
+    noticeVersion: "2026-11-02", formOpenedAt: Date.now() - 10_000, ...over,
+  });
+  const noConsent = await postJson(base, "/api/v1/consults", consult({ consents: { privacy: false } }));
+  assert.equal(noConsent.status, 422);
+  assert.ok((await noConsent.json()).fields["consents.privacy"]);
+  assert.equal((await postJson(base, "/api/v1/consults", consult({ phone: "02-123-4567" }))).status, 422);
+  assert.equal((await postJson(base, "/api/v1/consults", consult(), "https://evil.example")).status, 403);
+  const r = await postJson(base, "/api/v1/consults", consult());
+  assert.equal(r.status, 201);
+  const c = t.s.consults[0];
+  assert.deepEqual([c.name, c.consultStatus, c.interest, c.customerId], ["이민수 빠른 상담", "WAITING", "다이어트 한약", t.s.people[0].id]);
+  const days = (Date.parse(c.purgeAfter) - Date.now()) / 86400_000;
+  assert.ok(days > 88 && days < 91);
+  assert.deepEqual(t.s.consents.map((x) => [x.consentType, x.granted]), [["PRIVACY", true], ["MARKETING", false]]);
+
+  c.purgeAfter = "2000-01-01";
+  const out = await runPurge({ cfg, twenty: t });
+  assert.deepEqual([out.consults, out.people], [1, 1]);
+  assert.equal(t.s.consults.length, 0);
+  assert.equal(t.s.people.length, 0);
 }));
 
 test("진료 예약: 가능한 칸만 받고, 같은 칸은 두 번 받지 않는다", () => withServer(async (base, t) => {
@@ -278,7 +359,7 @@ test("진료 예약: 가능한 칸만 받고, 같은 칸은 두 번 받지 않�
   assert.ok(slots.slots.find((s) => s.time === "15:00").available);
   const appt = (over = {}) => ({
     name: "박철수", phone: "010-1234-5678", product: "diet-consult", method: "PHONE", date, time: "15:00", intake,
-    consents: { privacy: true, sensitive: true, marketing: true }, noticeVersion: "2026-11-01", formOpenedAt: Date.now() - 10_000, ...over,
+    consents: { privacy: true, sensitive: true, marketing: true }, noticeVersion: "2026-11-02", formOpenedAt: Date.now() - 10_000, ...over,
   });
   assert.equal((await postJson(base, "/api/v1/appointments", appt())).status, 201);
   assert.equal(t.s.appointments[0].scheduledAt, new Date(`${date}T15:00:00+09:00`).toISOString());
@@ -305,7 +386,7 @@ test("파기: 결제하지 않은 주문과 그 문진·고객, 보유기간 지
   t.s.orders.push({ id: "o1", name: "BR1", orderStatus: "PENDING", createdAt: old, customerId: "p1" }, { id: "o2", name: "BR2", orderStatus: "PAID", createdAt: old, customerId: "p2" });
   t.s.intakes.push({ id: "i1", clinicOrderId: "o1", purgeAfter: "2099-01-01" }, { id: "i2", clinicOrderId: "o2", purgeAfter: "2000-01-01" });
   const r = await runPurge({ cfg, twenty: t });
-  assert.deepEqual(r, { orders: 1, intakes: 2, people: 1 });
+  assert.deepEqual(r, { orders: 1, intakes: 2, consults: 0, people: 1 });
   assert.deepEqual(t.s.orders.map((o) => o.id), ["o2"]);
   assert.deepEqual(t.s.people.map((p) => p.id), ["p2"]);
 });

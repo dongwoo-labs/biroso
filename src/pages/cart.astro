@@ -4,7 +4,7 @@ import clinic from "../data/clinic.json";
 import { loadProducts, productHref } from "../lib/content";
 
 // 장바구니 화면에 쓸 상품 목록(이름·가격·그림). 실제 결제 금액은 주문 API가 다시 계산한다.
-const catalog = (await loadProducts()).filter((p) => p.kind === "PAYMENT")
+const catalog = (await loadProducts()).filter((p) => p.kind === "PAYMENT" && p.salesChannel !== "SOO_STORE")
   .map((p) => ({ slug: p.slug, name: p.name, price: p.salePrice, image: p.image, soldOut: p.soldOut, href: productHref(p), freeShipping: p.freeShipping }));
 ---
 <Base title={`장바구니 | ${clinic.name}`} description="장바구니" task bottomBar={false}>

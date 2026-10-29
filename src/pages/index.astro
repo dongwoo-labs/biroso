@@ -4,6 +4,7 @@ import ProductCard from "../components/ProductCard.astro";
 import EventCard from "../components/EventCard.astro";
 import ReservationCard from "../components/ReservationCard.astro";
 import PostCard from "../components/PostCard.astro";
+import QuickConsult from "../components/QuickConsult.astro";
 import { ChevronRight, Clock, MapPin } from "@lucide/astro";
 import clinic from "../data/clinic.json";
 import { loadProducts, loadEvents, loadPosts, boardHref } from "../lib/content";
@@ -57,6 +58,8 @@ const jsonLd = [{
     </div>
     <div class="mt-5 grid grid-cols-2 gap-x-3 gap-y-7 sm:grid-cols-4">{shop.slice(0, 8).map((p) => <ProductCard product={p} />)}</div>
   </section>
+
+  <QuickConsult />
 
   <section class="wrap mt-14">
     <h2 class="section-title">미루면 큰 병이 됩니다.</h2>

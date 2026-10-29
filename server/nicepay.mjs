@@ -65,9 +65,11 @@ export function createNicepay({ clientId, secretKey, apiUrl }, fetchImpl = fetch
       }
       return r;
     },
-    async cancel(tid, orderId, reason, cancelAmt) {
+    // cancelAmt가 없으면 전액 취소. 부분 취소면 그중 면세 금액(taxFreeAmt)을 함께 보낸다.
+    async cancel(tid, orderId, reason, cancelAmt, taxFreeAmt) {
       const body = { reason: String(reason).slice(0, 50), orderId };
       if (cancelAmt) body.cancelAmt = cancelAmt;
+      if (cancelAmt && taxFreeAmt) body.taxFreeAmt = taxFreeAmt;
       const r = await call(`/v1/payments/${encodeURIComponent(tid)}/cancel`, body);
       if (r.resultCode !== "0000") throw new PaymentError("cancel_failed", r.resultMsg || "결제 취소에 실패했어요.");
       return r;

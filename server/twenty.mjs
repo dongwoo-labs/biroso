@@ -19,7 +19,7 @@ export const money = (n) => ({ amountMicros: Math.round(n) * 1_000_000, currency
 
 // Twenty 상품 레코드 → 가격 계산용
 export const toProduct = (p) => ({
-  id: p.id, slug: p.slug || p.id, name: p.name ?? "", kind: p.kind ?? "PAYMENT", published: Boolean(p.published),
+  id: p.id, slug: p.slug || p.id, name: p.name ?? "", kind: p.kind ?? "PAYMENT", published: Boolean(p.published), salesChannel: p.salesChannel ?? "OWN",
   soldOut: Boolean(p.soldOut), taxFree: Boolean(p.taxFree), freeShipping: Boolean(p.freeShipping),
   telemedicine: Boolean(p.telemedicine), inPerson: Boolean(p.inPerson),
   salePrice: won(p.salePrice) ?? won(p.regularPrice),
@@ -82,6 +82,12 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     async updateOrder(id, patch) {
       await call("PATCH", `/clinicOrders/${id}`, patch);
     },
+    async createConsult(row) {
+      return (await call("POST", "/consultRequests", row)).data.createConsultRequest;
+    },
+    async listExpiredConsults(today) {
+      return listAll("consultRequests", `purgeAfter[lt]:"${today}"`);
+    },
     async createIntake(row) {
       return (await call("POST", "/intakes", row)).data.createIntake;
     },
@@ -111,7 +117,7 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
       return rows.map((c) => String(c.date).slice(0, 10));
     },
 
-    // 파기: 결제하지 않고 떠난 주문(+ 그 주문의 문진), 보유기간이 지난 문진
+    // 파기: 결제하지 않고 떠난 주문(+ 그 주문의 문진), 보유기간이 지난 문진·빠른 상담
     async listStalePendingOrders(beforeIso) {
       return listAll("clinicOrders", `and(orderStatus[eq]:"PENDING",createdAt[lt]:"${beforeIso}")`, "&depth=1");
     },
@@ -124,10 +130,10 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     async hardDelete(plural, id) {
       await call("DELETE", `/${plural}/${id}?soft_delete=false`);
     },
-    // 주문·예약이 하나도 없는 고객(결제하지 않고 떠난 사람)은 동의기록과 함께 지운다
+    // 주문·예약·상담이 하나도 없는 고객(결제하지 않고 떠난 사람, 보관 기간이 지난 상담 신청자)은 동의기록과 함께 지운다
     async deletePersonIfOrphan(personId) {
       const p = (await call("GET", `/people/${personId}?depth=1`)).data.person;
-      if (!p || (p.clinicOrders?.length ?? 0) > 0 || (p.appointments?.length ?? 0) > 0 || (p.intakes?.length ?? 0) > 0) return false;
+      if (!p || ["clinicOrders", "appointments", "intakes", "consultRequests"].some((k) => (p[k]?.length ?? 0) > 0)) return false;
       for (const c of p.consentRecords ?? []) await call("DELETE", `/consentRecords/${c.id}?soft_delete=false`);
       for (;;) {
         const tl = await call("GET", `/timelineActivities${q(`targetPersonId[eq]:"${personId}"`, "&limit=60")}`);

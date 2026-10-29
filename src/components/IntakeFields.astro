@@ -2,9 +2,16 @@
 // 문진(건강정보 = 민감정보). 칸 이름은 API 경로(intake.*)와 같다. 서버 오류가 칸 아래에 붙는다.
 // diet: 다이어트 상품이 있으면 키·몸무게·복용 경험을 필수로 받는다(비율환 단계·복용량 판단에 쓰임).
 //   이 칸들은 data-diet-only가 붙어 있어, 주문서처럼 상품에 따라 달라지는 화면은 스크립트로 숨긴다.
+// 질병 경험·복용 약은 메디스트림 기본 문진표와 같은 선택지로 받는다(값은 server/schema.mjs의 DISEASES·MEDS와 같다).
+// 임신·수유는 여성일 때만 보인다.
 interface Props { diet?: boolean; symptomLabel?: string }
 const { diet = false, symptomLabel = "상담받고 싶은 내용" } = Astro.props;
 const thisYear = new Date().getFullYear();
+const DISEASES: [string, string][] = [["NONE", "해당 없음"], ["HEART", "심장질환"], ["DIABETES", "당뇨병"], ["HYPERTENSION", "고혈압"], ["HEPATITIS", "간염(보균)"],
+  ["NEURO_PSYCH", "신경정신질환"], ["RESPIRATORY", "호흡기계질환"], ["GASTRO", "위장관계질환"], ["OSTEOPOROSIS", "골다공증"], ["HAIR_LOSS", "탈모"],
+  ["KIDNEY_URO", "신장 및 비뇨기과질환"], ["ATOPY", "아토피"], ["PROSTATE", "전립선질환"], ["OTHER", "기타"]];
+const MEDS: [string, string][] = [["NONE", "해당 없음"], ["ANTIDEPRESSANT", "우울증약"], ["ASTHMA", "천식약"], ["HYPERTENSION", "고혈압약"],
+  ["THYROID", "갑상선약"], ["DIABETES", "당뇨약"], ["OTHER", "기타(두통약 등)"]];
 ---
 <fieldset class="space-y-4">
   <legend class="text-[18px] font-bold">진료 전 문진</legend>
@@ -28,7 +35,7 @@ const thisYear = new Date().getFullYear();
       <div data-field><label class="label" for="weightKg">몸무게(kg)</label><input id="weightKg" name="intake.weightKg" class="field num" type="number" inputmode="decimal" min="20" max="250" step="0.1" required /></div>
     </div>
   )}
-  <div data-field>
+  <div data-field data-female-only>
     <span class="label">임신·수유</span>
     <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
       <label class="choice"><input type="radio" name="intake.pregnancy" value="NONE" class="sr-only" checked />해당 없음</label>
@@ -37,9 +44,38 @@ const thisYear = new Date().getFullYear();
       <label class="choice"><input type="radio" name="intake.pregnancy" value="PLANNING" class="sr-only" />임신 계획 있음</label>
     </div>
   </div>
-  <div data-field><label class="label" for="medications">복용 중인 약 <span class="font-normal text-ink-faint">(없으면 비워 두세요)</span></label><input id="medications" name="intake.medications" class="field" maxlength="500" placeholder="예: 혈압약, 갑상선약, 피임약" /></div>
-  <div data-field><label class="label" for="conditions">앓는 질환·수술력</label><input id="conditions" name="intake.conditions" class="field" maxlength="500" placeholder="예: 고혈압, 당뇨, 심장 질환, 불면" /></div>
+  <div data-field data-multi="intake.diseases">
+    <span class="label">질병 경험 <span class="font-normal text-ink-faint">(모두 골라 주세요)</span></span>
+    <div class="flex flex-wrap gap-2">
+      {DISEASES.map(([v, l]) => <label class="choice min-h-10 px-3 text-[14px]"><input type="checkbox" name="intake.diseases" value={v} class="sr-only" />{l}</label>)}
+    </div>
+    <input id="conditions" name="intake.conditions" class="field mt-2" maxlength="500" placeholder="기타 질병이나 수술력이 있으면 적어 주세요" />
+  </div>
+  <div data-field data-multi="intake.recentMeds">
+    <span class="label">최근 한 달 동안 먹은 약</span>
+    <div class="flex flex-wrap gap-2">
+      {MEDS.map(([v, l]) => <label class="choice min-h-10 px-3 text-[14px]"><input type="checkbox" name="intake.recentMeds" value={v} class="sr-only" />{l}</label>)}
+    </div>
+    <input id="medications" name="intake.medications" class="field mt-2" maxlength="500" placeholder="기타를 골랐다면 약 이름을 적어 주세요(예: 피임약, 두통약)" />
+  </div>
   <div data-field><label class="label" for="allergies">알레르기·약 부작용</label><input id="allergies" name="intake.allergies" class="field" maxlength="300" /></div>
   {diet && <div data-field data-diet-only><label class="label" for="dietHistory">다이어트 한약 복용 경험</label><input id="dietHistory" name="intake.dietHistory" class="field" maxlength="300" placeholder="예: 처음이에요 / 작년에 3개월 복용, 두근거림 있었음" required /></div>}
   <div data-field><label class="label" for="symptoms">{symptomLabel}</label><textarea id="symptoms" name="intake.symptoms" class="field min-h-24" maxlength="1000"></textarea></div>
 </fieldset>
+
+<script>
+  // 남성이면 임신·수유 칸을 숨긴다. '해당 없음'을 고르면 다른 항목을 끄고, 다른 항목을 고르면 '해당 없음'을 끈다.
+  document.addEventListener("astro:page-load", () => {
+    document.querySelectorAll<HTMLInputElement>('[name="intake.sex"]').forEach((r) => r.addEventListener("change", () => {
+      const male = r.checked && r.value === "M";
+      r.form?.querySelectorAll<HTMLElement>("[data-female-only]").forEach((el) => { el.hidden = male; });
+    }));
+    document.querySelectorAll<HTMLElement>("[data-multi]").forEach((group) => {
+      const boxes = [...group.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+      boxes.forEach((b) => b.addEventListener("change", () => {
+        if (!b.checked) return;
+        boxes.forEach((o) => { if (o !== b && (b.value === "NONE" || o.value === "NONE")) o.checked = false; });
+      }));
+    });
+  });
+</script>

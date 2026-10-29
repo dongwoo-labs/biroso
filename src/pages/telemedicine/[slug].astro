@@ -1,5 +1,6 @@
 ---
 // 상품 상세. 원내 상품(결제형)은 수량·장바구니·처방 신청, 진료 예약(예약형)은 진료 방법·날짜·시간·문진을 받는다.
+// 수壽 상품(판매 경로 = 수壽 매장)은 비로소한의원 전용 수壽 매장으로 보낸다. 조제·배송·정산을 수壽가 맡는다.
 // 주소는 기존 사이트와 같은 /telemedicine/<상품 ID>/ 이다.
 import Base from "../../layouts/Base.astro";
 import IntakeFields from "../../components/IntakeFields.astro";
@@ -13,6 +14,7 @@ export async function getStaticPaths() {
 }
 const { p } = Astro.props as { p: Product };
 const reservation = p.kind === "RESERVATION";
+const store = !reservation && p.salesChannel === "SOO_STORE" ? p.storeUrl : null;
 const off = discount(p);
 const closures = reservation ? await loadClosures() : [];
 const name = p.name.replace(/^\[비대면 가능\]\s*/, "");
@@ -58,6 +60,19 @@ const jsonLd = reservation ? [] : [{
               {p.attributes.map(([k, v]) => <div class="grid grid-cols-[88px_1fr] gap-3 py-2.5"><dt class="text-ink-faint">{k}</dt><dd>{v}</dd></div>)}
             </dl>
           )}
+          {store ? (
+            <>
+              <div class="mt-5 rounded-2xl bg-wash p-4 text-[14px] text-ink-soft">
+                <p class="font-semibold text-ink">수壽 공식 매장에서 처방 신청해요</p>
+                <p class="mt-1">카카오 로그인 후 옵션을 고르고 결제하면, 비로소한의원 원장님이 비대면 진료로 처방해요. 조제·배송 일정은 수壽 매장 안내를 따라요.</p>
+              </div>
+              <div class="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-paper px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 md:static md:mt-4 md:border-0 md:p-0">
+                {p.soldOut
+                  ? <button type="button" class="btn btn-primary btn-xl w-full" disabled>품절</button>
+                  : <a href={store} target="_blank" rel="noopener" class="btn btn-primary btn-xl w-full no-underline">수壽 매장에서 처방 신청</a>}
+              </div>
+            </>
+          ) : (<>
           <div class="mt-5 rounded-2xl bg-wash p-4" data-buy={p.slug} data-price={p.salePrice}>
             <div class="flex items-center justify-between gap-3">
               <span class="line-clamp-1 text-[15px] font-semibold">{p.name}</span>
@@ -78,6 +93,7 @@ const jsonLd = reservation ? [] : [{
             <button type="button" class="btn btn-primary btn-xl" data-direct disabled={p.soldOut}>{p.soldOut ? "품절" : "처방 신청"}</button>
           </div>
           <p class="mt-3 hidden text-center text-[14px] font-semibold text-brand" data-added role="status">장바구니에 담았어요. <a href="/cart/" class="underline">장바구니 보기</a></p>
+          </>)}
           <a href={clinic.links.kakaoChat} target="_blank" rel="noopener" class="card mt-4 flex items-center justify-between gap-3 px-4 py-3.5 no-underline">
             <span><span class="block text-[13px] text-ink-faint">나와 맞을지 고민된다면?</span><span class="block text-[15px] font-bold text-ink">원장님께 지금 바로 여쭤보세요</span></span>
             <span class="btn btn-weak min-h-10 flex-none px-3 text-[14px]"><MessageCircle size={16} aria-hidden="true" />상담하기</span>
@@ -131,7 +147,7 @@ const jsonLd = reservation ? [] : [{
 
   {!reservation && (
     <section class="wrap mt-14 max-w-[760px] space-y-2">
-      {[["배송 안내", clinic.policies.shipping], ["주문 취소 안내", clinic.policies.order], ["교환/반품 안내", clinic.policies.return]].map(([t, md]) => (
+      {!store && [["배송 안내", clinic.policies.shipping], ["주문 취소 안내", clinic.policies.order], ["교환/반품 안내", clinic.policies.return]].map(([t, md]) => (
         <details class="card px-5 py-4"><summary class="cursor-pointer list-none text-[16px] font-bold">{t}</summary><div class="prose mt-3 text-[14px]" set:html={renderMarkdown(md)} /></details>
       ))}
     </section>
@@ -141,7 +157,7 @@ const jsonLd = reservation ? [] : [{
 
 <script>
   import { addToCart, setDirect, MAX_QTY } from "../../lib/cart";
-  import { bindPhone, showErrors, postJson, numOrNull, str } from "../../lib/form";
+  import { bindPhone, showErrors, postJson, str, readIntake, checkMulti } from "../../lib/form";
   import { readAttribution } from "../../lib/attribution";
 
   const won = (n: number) => `${n.toLocaleString("ko-KR")}원`;
@@ -230,6 +246,7 @@ const jsonLd = reservation ? [] : [{
       const local: Record<string, string> = {};
       if (!str(fd.get("date"))) local.date = "날짜를 골라 주세요.";
       if (!str(fd.get("time"))) local.time = "시간을 골라 주세요.";
+      checkMulti(form, local);
       if (!form.checkValidity() || Object.keys(local).length) {
         form.querySelectorAll<HTMLInputElement>("input,textarea").forEach((i) => { if (!i.checkValidity()) local[i.name] ??= i.type === "checkbox" ? "동의가 필요해요." : "입력해 주세요."; });
         showErrors(form, local);
@@ -240,12 +257,7 @@ const jsonLd = reservation ? [] : [{
       const body = {
         product: str(fd.get("product")), method: str(fd.get("method")), date: str(fd.get("date")), time: str(fd.get("time")),
         name: str(fd.get("name")), phone: str(fd.get("phone")),
-        intake: {
-          sex: str(fd.get("intake.sex")), birthYear: numOrNull(fd.get("intake.birthYear")), heightCm: numOrNull(fd.get("intake.heightCm")),
-          weightKg: numOrNull(fd.get("intake.weightKg")), pregnancy: str(fd.get("intake.pregnancy")) || "NONE",
-          medications: str(fd.get("intake.medications")), conditions: str(fd.get("intake.conditions")), allergies: str(fd.get("intake.allergies")),
-          dietHistory: str(fd.get("intake.dietHistory")), symptoms: str(fd.get("intake.symptoms")),
-        },
+        intake: readIntake(fd, Boolean(form.querySelector("[data-diet-only]"))),
         consents: { privacy: fd.get("consents.privacy") === "on", sensitive: fd.get("consents.sensitive") === "on", marketing: fd.get("consents.marketing") === "on" },
         noticeVersion: str(fd.get("noticeVersion")), website: str(fd.get("website")), formOpenedAt: openedAt, ...readAttribution(),
       };

@@ -1,0 +1,72 @@
+---
+// 빠른 상담: 이름·휴대폰만 받아 한의원이 전화하는 상담 신청(메디스트림 홈페이지의 '빠른 상담'과 같다).
+// 받은 신청은 Twenty '빠른 상담'에 상담 대기로 쌓이고, 보관 기간이 지나면 자동으로 지운다.
+import notice from "../data/notice.json";
+import clinic from "../data/clinic.json";
+const INTERESTS = ["다이어트 한약", "공진단·경옥고", "상비약", "맞춤 한약", "침·추나", "교통사고 치료", "기타"];
+---
+<section class="wrap mt-14">
+  <form class="card grid gap-5 p-6 md:grid-cols-[1fr_1.4fr] md:p-8" data-consult novalidate>
+    <div>
+      <h2 class="section-title">빠른 상담</h2>
+      <p class="section-sub">이름과 연락처만 남겨 주세요. 진료시간 안에 {clinic.tel}로 전화드려요.</p>
+    </div>
+    <div class="space-y-3">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div data-field><label class="label" for="qc-name">이름</label><input id="qc-name" name="name" class="field" autocomplete="name" required maxlength="30" /></div>
+        <div data-field><label class="label" for="qc-phone">휴대폰 번호</label><input id="qc-phone" name="phone" class="field num" type="tel" inputmode="numeric" autocomplete="tel" placeholder="010-0000-0000" required /></div>
+      </div>
+      <div data-field>
+        <label class="label" for="qc-interest">관심 진료 <span class="font-normal text-ink-faint">(선택)</span></label>
+        <select id="qc-interest" name="interest" class="field"><option value="">고르지 않을게요</option>{INTERESTS.map((i) => <option>{i}</option>)}</select>
+      </div>
+      <input type="hidden" name="noticeVersion" value={notice.version} />
+      <div data-field>
+        <label class="flex items-start gap-2.5 text-[15px] font-semibold"><input type="checkbox" name="consents.privacy" class="mt-0.5 size-5 accent-brand" required />[필수] 개인정보 수집·이용에 동의해요</label>
+        <details class="ml-7.5 mt-1 text-[13px] text-ink-soft"><summary class="cursor-pointer text-ink-faint">자세히</summary>
+          <p class="mt-1">수집 항목: {notice.consult.items}</p><p>목적: {notice.consult.purpose}</p><p>보유 기간: {notice.consult.retention}</p>
+          <p>동의하지 않으면 상담 신청을 할 수 없어요.</p></details>
+      </div>
+      <label class="flex items-start gap-2.5 text-[15px]"><input type="checkbox" name="consents.marketing" class="mt-0.5 size-5 accent-brand" />[선택] 이벤트·혜택 소식을 문자로 받을게요</label>
+      <input type="text" name="website" class="hidden" tabindex="-1" autocomplete="off" aria-hidden="true" />
+      <p class="hidden rounded-2xl bg-wash p-4 text-[15px] font-semibold" data-result role="status"></p>
+      <button class="btn btn-primary btn-xl w-full" data-submit>상담 신청</button>
+    </div>
+  </form>
+</section>
+
+<script>
+  import { bindPhone, showErrors, postJson, str } from "../lib/form";
+  import { readAttribution } from "../lib/attribution";
+
+  document.addEventListener("astro:page-load", () => {
+    const form = document.querySelector<HTMLFormElement>("[data-consult]");
+    if (!form) return;
+    const openedAt = Date.now();
+    bindPhone(form.querySelector('[name="phone"]'));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const local: Record<string, string> = {};
+      form.querySelectorAll<HTMLInputElement>("input").forEach((i) => { if (!i.checkValidity()) local[i.name] ??= i.type === "checkbox" ? "동의가 필요해요." : "입력해 주세요."; });
+      if (showErrors(form, local)) return;
+      const fd = new FormData(form);
+      const btn = form.querySelector<HTMLButtonElement>("[data-submit]")!;
+      btn.disabled = true;
+      const r = await postJson("/api/v1/consults", {
+        name: str(fd.get("name")), phone: str(fd.get("phone")), interest: str(fd.get("interest")),
+        consents: { privacy: fd.get("consents.privacy") === "on", marketing: fd.get("consents.marketing") === "on" },
+        noticeVersion: str(fd.get("noticeVersion")), website: str(fd.get("website")), formOpenedAt: openedAt, ...readAttribution(),
+      }).catch(() => ({ ok: false, status: 0, json: {} as any }));
+      btn.disabled = false;
+      const out = form.querySelector<HTMLElement>("[data-result]")!;
+      out.classList.remove("hidden");
+      if (r.ok) {
+        form.querySelectorAll("[data-field], label, [data-submit]").forEach((el) => el.classList.add("hidden"));
+        out.textContent = r.json.message ?? "상담 신청을 받았어요.";
+        return;
+      }
+      showErrors(form, r.json.fields ?? {});
+      out.textContent = r.json.message ?? "신청하지 못했어요. 잠시 후 다시 시도해 주세요.";
+    });
+  });
+</script>

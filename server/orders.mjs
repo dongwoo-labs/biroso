@@ -1,6 +1,7 @@
 // 주문 → 결제 → 승인. 원본 사이트와 같은 흐름이다:
 //   상품 결제(처방 신청) → 원장님 전화 진료 → 처방 확정·조제 → 발송.
-// 처방 확정 전에는 전액 환불할 수 있다(직원이 Twenty에서 환불을 요청하면 refundOrder가 처리).
+// 주문 상태(orderStatus)는 진료·결제 흐름, 배송 상태(shippingStatus)는 배송 흐름을 따로 기록한다.
+// 처방 확정 전에는 환불할 수 있다(전액 또는 일부. 직원이 Twenty에서 환불을 요청하면 refundOrder가 처리).
 
 import { randomBytes } from "node:crypto";
 import { orderSchema, normalizeMobile, toNewPerson, toIntake, toConsentRecords, fieldErrors } from "./schema.mjs";
@@ -68,7 +69,7 @@ export async function createOrder(raw, ctx, { cfg, twenty }) {
     itemsSummary: price.itemsSummary, items: price.items,
     itemsAmount: money(price.itemsAmount), shippingFee: money(price.shippingFee),
     totalAmount: money(price.totalAmount), taxFreeAmount: money(price.taxFreeAmount),
-    payMethod: v.payMethod, pickup: v.pickup, consultTime: v.consultTime,
+    payMethod: v.payMethod, deliveryMethod: v.pickup ? "PICKUP" : "PARCEL", shippingStatus: "WAITING", consultTime: v.consultTime,
     recipientName: v.pickup ? v.name : (v.recipient.name || v.name),
     recipientPhone: recipientPhones ?? phones,
     shippingAddress: v.pickup ? undefined : {
@@ -77,7 +78,7 @@ export async function createOrder(raw, ctx, { cfg, twenty }) {
     deliveryMemo: v.recipient.memo,
   });
   await twenty.createIntake({ name: `${v.name} · 주문 ${orderNo}`, ...toIntake(v.intake, { customerId: personId, clinicOrderId: order.id }, cfg, ctx.now) });
-  for (const row of toConsentRecords(v, personId, ctx, ["PRIVACY", "SENSITIVE", "TERMS", "MARKETING"])) await twenty.createConsentRecord(row);
+  for (const row of toConsentRecords(v, personId, ctx, ["PRIVACY", "SENSITIVE", "TERMS", "DOSAGE", "MARKETING"])) await twenty.createConsentRecord(row);
 
   return {
     orderNo,
@@ -145,6 +146,9 @@ export async function completePayment(form, { cfg, twenty, nicepay, log }) {
 }
 
 // 환불(처방 확정 전 취소). Twenty 워크플로나 직원 도구가 ADMIN_SECRET으로 부른다.
+//   본문 { orderNo, reason?, amount?, force? }. amount가 없으면 남은 금액 전부를 환불한다.
+//   일부만 환불하면 주문은 '부분 환불'이 되고, 남은 금액 안에서 다시 환불할 수 있다.
+//   면세(한약)·과세(배송비)가 섞인 결제는 면세 금액부터 돌려준다(나이스페이 부분 취소의 taxFreeAmt).
 export async function refundOrder(body, { twenty, nicepay }, now = new Date()) {
   const orderNo = String(body?.orderNo ?? "");
   const reason = String(body?.reason ?? "고객 요청").slice(0, 50);
@@ -152,20 +156,33 @@ export async function refundOrder(body, { twenty, nicepay }, now = new Date()) {
   if (!order) throw new Rejected(404, "not_found", "주문을 찾지 못했어요.");
   if (order.orderStatus === "REFUNDED") return { orderNo, already: true };
   if (order.orderStatus === "PENDING") {
-    await twenty.updateOrder(order.id, { orderStatus: "CANCELLED", cancelReason: reason, cancelledAt: now.toISOString() });
+    await twenty.updateOrder(order.id, { orderStatus: "CANCELLED", shippingStatus: "CANCELLED", cancelReason: reason, cancelledAt: now.toISOString() });
     return { orderNo, refunded: 0 };
   }
   if (!order.pgTid) throw new Rejected(409, "no_payment", "결제 기록이 없어 환불할 수 없어요.");
   // 처방 확정 뒤에는 조제가 시작돼 교환·반품 기준으로 처리한다(원본 사이트 주문 취소 안내). 강제로 하려면 force.
-  if (["PRESCRIBED", "SHIPPED", "DONE"].includes(order.orderStatus) && !body.force) {
+  if (["PRESCRIBED", "DONE"].includes(order.orderStatus) && !body.force) {
     throw new Rejected(409, "prescribed", "처방이 확정된 주문은 교환·반품 기준으로 처리해요. 그래도 환불하려면 force를 켜 주세요.");
   }
-  // 전액 환불만 한다. 부분 환불을 받으면 남은 금액이 있는데도 '환불'로 표시돼 나머지를 다시 환불할 수 없게 된다.
-  const total = wonOf(order.totalAmount);
-  if (body.amount != null && Number(body.amount) !== total) {
-    throw new Rejected(422, "partial_refund", "부분 환불은 지원하지 않아요. 나이스페이 가맹점 관리자에서 처리해 주세요.");
+  const total = wonOf(order.totalAmount) ?? 0;
+  const already = wonOf(order.refundedAmount) ?? 0;
+  const remaining = total - already;
+  const amount = body.amount == null ? remaining : Number(body.amount);
+  if (!Number.isInteger(amount) || amount <= 0 || amount > remaining) {
+    throw new Rejected(422, "bad_amount", `환불 금액은 1원부터 남은 금액 ${remaining.toLocaleString("ko-KR")}원까지예요.`);
   }
-  const r = await nicepay.cancel(order.pgTid, orderNo, reason);
-  await twenty.updateOrder(order.id, { orderStatus: "REFUNDED", cancelReason: reason, cancelledAt: now.toISOString() });
-  return { orderNo, refunded: total, balance: r.balanceAmt };
+  const full = amount === remaining;
+  // 첫 환불이 전액이면 금액 없이 전체 취소한다. 그 밖에는 부분 취소로 금액과 면세 금액을 넘긴다.
+  let r;
+  if (full && already === 0) r = await nicepay.cancel(order.pgTid, orderNo, reason);
+  else {
+    const taxFreeLeft = Math.max(0, (wonOf(order.taxFreeAmount) ?? 0) - already);
+    r = await nicepay.cancel(order.pgTid, orderNo, reason, amount, Math.min(amount, taxFreeLeft));
+  }
+  await twenty.updateOrder(order.id, {
+    // 처방 확정·주문 완료 주문의 부분 환불은 상태를 그대로 둔다(다음 환불도 force가 필요하도록). 환불액은 refundedAmount에 쌓인다.
+    orderStatus: full ? "REFUNDED" : ["PRESCRIBED", "DONE"].includes(order.orderStatus) ? order.orderStatus : "PARTIAL_REFUNDED", refundedAmount: money(already + amount), cancelReason: reason,
+    ...(full ? { cancelledAt: now.toISOString(), shippingStatus: ["SHIPPED", "DELIVERED", "PICKED_UP"].includes(order.shippingStatus) ? order.shippingStatus : "CANCELLED" } : {}),
+  });
+  return { orderNo, refunded: amount, refundedTotal: already + amount, remaining: remaining - amount, balance: r.balanceAmt };
 }
