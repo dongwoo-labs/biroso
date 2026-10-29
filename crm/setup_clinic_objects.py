@@ -49,11 +49,12 @@ def opts(*pairs):
 # 값은 홈페이지 코드(src/lib/content.ts, server/*.mjs)와 같아야 한다
 KINDS = opts(("PAYMENT", "원내 상품(결제)"), ("RESERVATION", "진료 예약"))
 CATEGORIES = opts(("DIET", "비로소 다이어트"), ("GONGJINDAN", "공진단 수壽"), ("GYEONGOKGO", "경옥고 수壽"), ("UHWANG", "우황청심원 수壽"),
-                  ("DECOCTION", "탕약 수壽"), ("RESERVATION", "진료 예약"), ("ETC", "기타"))
+                  ("DECOCTION", "탕약 수壽"), ("SKINCARE", "RATIOLOGY 화장품"), ("RESERVATION", "진료 예약"), ("ETC", "기타"))
 # 게시판 값 ↔ 기존 주소(board/category-N). 주소는 검색·블로그 링크가 걸려 있어 그대로 쓴다.
 BOARDS = opts(("NEWS", "비로소 소식담기"), ("COLUMN", "비로소 질환칼럼"), ("START", "비로소 시작하기"), ("HEALTH", "비로소 건강의학"),
               ("LOCATION", "비로소 오시는길"), ("HERBAL", "비로소 한약치료"), ("PHARMACOPUNCTURE", "비로소 약침치료"),
-              ("BALANCE", "비로소 균형치료"), ("DIET", "비로소 다이어트"), ("IMMUNE", "비로소 면역치료"))
+              ("BALANCE", "비로소 균형치료"), ("DIET", "비로소 다이어트"), ("IMMUNE", "비로소 면역치료"),
+              ("SOOBLOG", "공진단 효능 및 복용 안내"))
 # 주문 상태는 진료·결제 흐름만, 배송은 배송 상태에 따로 둔다(메디스트림 관리자와 같은 구조).
 ORDER_STATUS = opts(("PENDING", "결제 대기"), ("PAID", "결제 완료·진료 대기"), ("CONSULTED", "진료 완료"), ("PRESCRIBED", "처방 확정·조제"),
                     ("DONE", "주문 완료"), ("CANCELLED", "주문 취소(결제 전)"), ("PARTIAL_REFUNDED", "부분 환불"), ("REFUNDED", "환불"))
