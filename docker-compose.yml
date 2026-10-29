@@ -50,7 +50,11 @@ services:
       ADMIN_SECRET: ${ADMIN_SECRET:-}
       INTAKE_RETENTION_DAYS: ${INTAKE_RETENTION_DAYS:-365}
       PENDING_ORDER_HOURS: ${PENDING_ORDER_HOURS:-24}
-    networks: [default, crm]
+    networks:
+      default:
+      crm:
+        # Twenty 워크플로가 부르는 이름. crm 네트워크에서는 두 회사의 서비스 이름이 겹친다.
+        aliases: [biroso-api]
 
   builder:
     image: biroso/site:local
@@ -66,7 +70,11 @@ services:
       PUBLIC_NAVER_SITE_VERIFICATION: ${PUBLIC_NAVER_SITE_VERIFICATION:-}
       PUBLIC_GOOGLE_SITE_VERIFICATION: ${PUBLIC_GOOGLE_SITE_VERIFICATION:-}
     volumes: [site:/site]
-    networks: [default, crm]
+    networks:
+      default:
+      crm:
+        # Twenty 워크플로가 부르는 이름. crm 네트워크에서는 두 회사의 서비스 이름이 겹친다.
+        aliases: [biroso-builder]
 
   cron:
     image: biroso/site:local
