@@ -294,6 +294,47 @@ test("환불: 일부만 환불하면 부분 환불로 두고, 남은 금액 안�
   assert.equal(o().refundedAmount.amountMicros, 46500 * 1e6);
 }));
 
+test("환불: 같은 주문은 PG와 CRM 처리가 끝날 때까지 중복 요청을 거절한다", async (context) => {
+  for (const stage of ["pg", "crm"]) {
+    await context.test(stage, () => withServer(async (base, t, np) => {
+      const body = await (await postJson(base, "/api/v1/orders", order())).json();
+      await returnForm(base, { authResultCode: "0000", tid: "T_CONCURRENT", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "x", signature: sign("x", 46500) });
+      const entered = Promise.withResolvers(), release = Promise.withResolvers();
+      let pgRefunded = 0;
+      np.cancel = async (...args) => {
+        np.calls.push(["cancel", ...args]);
+        pgRefunded += args[3];
+        if (stage === "pg" && pgRefunded === 10000) { entered.resolve(); await release.promise; }
+        return { resultCode: "0000", balanceAmt: 46500 - pgRefunded };
+      };
+      const update = t.updateOrder;
+      t.updateOrder = async (...args) => {
+        if (stage === "crm" && pgRefunded === 10000) { entered.resolve(); await release.promise; }
+        return update(...args);
+      };
+      const refund = () => fetch(`${base}/api/v1/orders/refund`, { method: "POST", headers: { Authorization: "Bearer admin", "Content-Type": "application/json" }, body: JSON.stringify({ orderNo: body.orderNo, amount: 10000 }) });
+      const first = refund();
+      let second;
+      try {
+        await entered.promise;
+        second = await refund();
+      } finally {
+        release.resolve();
+      }
+      assert.equal((await first).status, 200);
+      assert.equal(second.status, 409, stage);
+      assert.equal((await second.json()).error, "refund_in_progress");
+      assert.equal(pgRefunded, 10000);
+      assert.equal(t.s.orders[0].refundedAmount.amountMicros, pgRefunded * 1e6);
+      const retry = await refund();
+      assert.equal(retry.status, 200);
+      assert.equal((await retry.json()).refundedTotal, 20000);
+      assert.equal(pgRefunded, 20000);
+      assert.equal(t.s.orders[0].refundedAmount.amountMicros, pgRefunded * 1e6);
+    }));
+  }
+});
+
 test("환불: 처방 확정 주문은 force로 부분 환불해도 처방 상태를 지켜 다음 환불에 다시 force가 필요하다", () => withServer(async (base, t) => {
   const body = await (await postJson(base, "/api/v1/orders", order())).json();
   await returnForm(base, { authResultCode: "0000", tid: "T4", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "x", signature: sign("x", 46500) });
