@@ -41,14 +41,14 @@ export function eventsOf(rule, d) {
   for (const a of d.appointments) apptsOf.set(a.customerId, [...(apptsOf.get(a.customerId) ?? []), a]);
   // 사건 뒤에 다시 잡은 예약이 있으면 그 사건으로는 연락하지 않는다
   const rebooked = (personId, after, exceptId) => (apptsOf.get(personId) ?? []).some((a) => a.id !== exceptId && UPCOMING.includes(a.appointmentStatus) && a.scheduledAt && new Date(a.scheduledAt) > new Date(after));
-  switch (rule.event) {
+  switch (rule.triggerEvent) {
     case "RX_START":
     case "RX_MID":
     case "RX_END":
       for (const rx of d.prescriptions) {
         const x = rxDates(rx);
         if (!x || rx.doneCheckedAt) continue;
-        push(rx.customerId, rx.id, { RX_START: x.start, RX_MID: x.mid, RX_END: x.end }[rule.event], rx.createdAt);
+        push(rx.customerId, rx.id, { RX_START: x.start, RX_MID: x.mid, RX_END: x.end }[rule.triggerEvent], rx.createdAt);
       }
       break;
     case "VISIT_DONE":
@@ -57,9 +57,9 @@ export function eventsOf(rule, d) {
     case "NO_SHOW":
     case "CANCELLED":
       for (const a of d.appointments) {
-        if (a.appointmentStatus !== (rule.event === "NO_SHOW" ? "NO_SHOW" : "CANCELLED") || !a.scheduledAt) continue;
-        const when = rule.event === "NO_SHOW" ? a.scheduledAt : a.updatedAt || a.scheduledAt;
-        if (!rebooked(a.customerId, rule.event === "NO_SHOW" ? a.scheduledAt : when, a.id)) push(a.customerId, a.id, kstDate(when), when);
+        if (a.appointmentStatus !== (rule.triggerEvent === "NO_SHOW" ? "NO_SHOW" : "CANCELLED") || !a.scheduledAt) continue;
+        const when = rule.triggerEvent === "NO_SHOW" ? a.scheduledAt : a.updatedAt || a.scheduledAt;
+        if (!rebooked(a.customerId, rule.triggerEvent === "NO_SHOW" ? a.scheduledAt : when, a.id)) push(a.customerId, a.id, kstDate(when), when);
       }
       break;
     case "FIRST_VISIT":
@@ -140,7 +140,7 @@ export function plan(d, now = new Date()) {
         isAd: Boolean(rule.isAd),
         dueAt: at(due, rule.timeOfDay),
         taskStatus: "TODO",
-        sourceEvent: rule.event,
+        sourceEvent: rule.triggerEvent,
         sourceId: e.sourceId,
         dedupeKey: e.key,
       });
