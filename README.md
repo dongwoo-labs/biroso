@@ -26,7 +26,7 @@
 | `public/media/` | 기존 사이트 그림(1200px webp로 줄임) |
 | `server/` | 주문·결제·예약·환불·파기 API (`handler.mjs`가 라우터) |
 | `api/` | Vercel 함수(전부 `server/handler.mjs`를 부른다) |
-| `crm/` | Twenty 객체 만들기(`setup_clinic_objects.py`), 옮겨 온 콘텐츠 넣기(`seed_content.py`), 업스트림 환자 가져오기(`import_upstream_patients.py`) |
+| `crm/` | Twenty 객체 만들기(`setup_clinic_objects.py`), 옮겨 온 콘텐츠 넣기(`seed_content.py`), 업스트림 환자 가져오기(`import_upstream_patients.py`), 예약·패키지 이력 가져오기(`import_upstream_history.py`) |
 | `scripts/import-site.mjs` | 기존 사이트에서 콘텐츠·그림 다시 가져오기(`npm run import-site`) |
 
 ## 처음 설정
@@ -76,6 +76,33 @@ TWENTY_URL=… TWENTY_API_KEY=… python3 import_upstream_patients.py ~/Download
 - 특이사항은 건강정보가 섞일 수 있어 console에 보이지 않는 `특이사항(업스트림)` 칸에 둔다.
 - 나이 열은 생년월일에서 계산되므로 쓰지 않는다. 예약·패키지·진료 이력은 이 파일에 없다.
 - 테스트: `python3 -m unittest crm/test_import_upstream.py`
+
+## 업스트림 예약·패키지 이력 옮기기(전환)
+
+환자를 먼저 옮긴 뒤 예약·패키지를 옮긴다. 기본은 **리허설**이라 아무것도 쓰지 않고 대사 보고(건수·상태별 건수·패키지 총량·잔여 합, 건너뛴 이유)만 낸다. 보고에는 환자 이름·차트번호가 없다.
+
+```bash
+cd crm
+python3 setup_clinic_objects.py                                                       # upstreamId 칸 만들기(한 번)
+python3 import_upstream_history.py appointments ~/Downloads/예약.xlsx --report 예약_리허설.json
+python3 import_upstream_history.py packages ~/Downloads/패키지.xlsx --usage ~/Downloads/사용내역.xlsx --report 패키지_리허설.json
+# 보고를 업스트림 화면 숫자와 맞춘 뒤 같은 명령에 --apply
+```
+
+- 각 건은 업스트림 ID(없으면 차트번호+일시)를 `upstreamId`(고유값)에 남긴다. 여러 번 돌려도 같은 건을 두 번 만들지 않는다. 예약은 바뀐 칸만 고치고, 이미 옮긴 패키지는 고치지 않고 빠진 원장 줄만 더한다.
+- 열 이름은 업스트림 화면·API 이름 여러 개를 받는다(`ALIASES`). 파일은 .xlsx, .csv, .json.
+- 패키지 잔여는 원장으로 계산되므로, 사용내역마다 '차감' 한 줄을 만들고 업스트림 잔여와의 차이는 '이관 전 사용'(또는 '이관 차이 맞춤') 한 줄로 맞춘다. 취소된 사용내역은 건너뛴다.
+- 수납(매출)은 만들지 않는다. 이관 전 매출은 업스트림 기록으로 본다.
+- `past_open`: 지난 날짜인데 완료·노쇼 표시가 없는 예약 수. 0이 아니면 업스트림 원무 기록이 빠진 것이라 확인한다.
+- 미래 예약도 옮겨지므로 예약 알림 단계를 켜 두었다면 그 예약에도 알림이 잡힌다.
+
+전환 순서:
+1. **리허설**: 지금 파일로 환자 → 예약 → 패키지를 미리보기만 돌려 건너뛴 줄을 고친다.
+2. **대사**: 보고의 상태별 건수, 활성 패키지 잔여 합(횟수형·정액형)을 업스트림 화면 숫자와 맞춘다.
+3. **전환일**: 업스트림 신규 입력을 멈추고(읽기 전용) 마지막 파일을 내려받아 세 가지를 `--apply`로 돌린다. 보고 파일을 남긴다.
+4. 그 뒤로는 CRM에서만 입력한다. 전환 뒤에는 이관 스크립트를 다시 돌리지 않는다(CRM에서 고친 값을 덮어쓴다).
+
+- 테스트: `python3 -m unittest crm/test_import_history.py`
 
 ## 연락 여정 (복약·노쇼·재내원·패키지·예약 알림)
 

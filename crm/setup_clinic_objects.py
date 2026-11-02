@@ -163,6 +163,7 @@ OBJECTS = [
         ("paidAt", "DATE_TIME", "수납", {}),
         ("cancelReason", "TEXT", "취소·노쇼 사유", {}),
         ("memo", "TEXT", "예약 메모", {}),
+        ("upstreamId", "TEXT", "업스트림 ID(이관)", {"isUnique": True}),
     ]),
     # 수납(내원 진료비). 온라인 주문 결제(clinicOrder)와 따로 둔다. 금액은 원장이 정한 비급여·본인부담 합계.
     ("payment", "payments", "수납", "수납", "IconCash", [
@@ -206,6 +207,7 @@ OBJECTS = [
         ("endsOn", "DATE", "만료일", {}),
         ("packageStatus", "SELECT", "상태", {"options": opts(("ACTIVE", "사용 중"), ("ENDED", "종료"), ("REFUNDED", "환불")), "defaultValue": "'ACTIVE'"}),
         ("endReason", "TEXT", "종료 사유", {}),
+        ("upstreamId", "TEXT", "업스트림 ID(이관)", {"isUnique": True}),
     ]),
     # 패키지 사용 원장. 고치지 않고 줄을 더한다(차감 취소도 한 줄). amount: 쓴 횟수·금액(취소는 음수로 계산).
     ("packageEntry", "packageEntries", "패키지 원장", "패키지 원장", "IconListDetails", [
@@ -216,6 +218,7 @@ OBJECTS = [
         ("extendDays", "NUMBER", "연장 일수", {}),
         ("at", "DATE_TIME", "일시", {}),
         ("memo", "TEXT", "메모", {}),
+        ("upstreamId", "TEXT", "업스트림 ID(이관)", {"isUnique": True}),
     ]),
     # 연락 여정의 단계 하나: 기준 사건 + N일 뒤 시각에 전화·메시지. journey가 같은 단계끼리 한 여정이다.
     # activeFrom 이후에 생긴 사건만 대상('지금부터 들어오는 건만'). 값은 server/journey.mjs와 같아야 한다.
