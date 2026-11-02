@@ -10,11 +10,11 @@ export class TwentyError extends Error {
 // 고유값 필드(isUnique)에 같은 값이 이미 있어 거절된 경우
 export const isDuplicate = (e) => e instanceof TwentyError && [400, 409].includes(e.status) && /duplicate|unique/i.test(e.message);
 
-// 파기해도 되는 고객인가: 주문·예약·문진·상담·수납이 하나도 없고, 차트번호가 없는(한의원 환자가 아닌) 사람.
+// 파기해도 되는 고객인가: 주문·예약·문진·상담·수납·처방·패키지·연락 업무가 하나도 없고, 차트번호가 없는(한의원 환자가 아닌) 사람.
 // 차트번호가 있는 환자는 진료기록 보존 대상이라 온라인 주문 파기와 함께 지우지 않는다.
 export function isOrphan(p) {
   if (!p || p.chartNo) return false;
-  return !["clinicOrders", "appointments", "intakes", "consultRequests", "payments"].some((k) => (p[k]?.length ?? 0) > 0);
+  return !["clinicOrders", "appointments", "intakes", "consultRequests", "payments", "prescriptions", "patientPackages", "contactTasks"].some((k) => (p[k]?.length ?? 0) > 0);
 }
 
 export class SlotTaken extends Error {
@@ -122,6 +122,28 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     async closures(fromDate, toDate) {
       const rows = await listAll("closures", `and(date[gte]:"${fromDate}",date[lte]:"${toDate}")`);
       return rows.map((c) => String(c.date).slice(0, 10));
+    },
+
+    // 연락 여정(server/journey.mjs): 판단에 필요한 레코드를 모두 읽는다(한의원 한 곳 규모, 관계는 id만)
+    async journeyData() {
+      const all = (plural) => listAll(plural, "", "&depth=0");
+      const [rules, tasks, prescriptions, appointments, people, packages] = await Promise.all([
+        all("contactRules"), all("contactTasks"), all("prescriptions"), all("appointments"), all("people"), all("patientPackages"),
+      ]);
+      return { rules, tasks, prescriptions, appointments, people, packages };
+    },
+    // 같은 dedupeKey가 이미 있으면(다른 실행이 먼저 만듦) 만들지 않고 false
+    async createContactTask(row) {
+      try {
+        await call("POST", "/contactTasks", row);
+        return true;
+      } catch (e) {
+        if (isDuplicate(e)) return false;
+        throw e;
+      }
+    },
+    async updateContactTask(id, patch) {
+      await call("PATCH", `/contactTasks/${id}`, patch);
     },
 
     // 파기: 결제하지 않고 떠난 주문(+ 그 주문의 문진), 보유기간이 지난 문진·빠른 상담

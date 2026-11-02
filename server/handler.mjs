@@ -7,6 +7,7 @@
 //   POST /v1/appointments        진료 예약
 //   POST /v1/consults            빠른 상담 신청
 //   GET  /v1/purge               파기 작업(Bearer CRON_SECRET, Vercel 크론)
+//   GET  /v1/journeys            연락 여정 → 연락 업무 만들기·자동 취소(Bearer CRON_SECRET, 매일)
 //   GET  /healthz
 
 import { loadConfig } from "./config.mjs";
@@ -16,6 +17,7 @@ import { createOrder, completePayment, refundOrder, Rejected } from "./orders.mj
 import { createAppointment, getSlots, getClosures } from "./appointments.mjs";
 import { createConsult } from "./consults.mjs";
 import { runPurge } from "./purge.mjs";
+import { runJourneys } from "./journey.mjs";
 
 const MAX_BODY = 32 * 1024;
 
@@ -78,6 +80,10 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
         log({ ts: now.toISOString(), event: "payment_error", orderNo: form.orderId, error: e.message });
         return redirect(`${cfg.siteUrl}/order/fail/?no=${encodeURIComponent(form.orderId ?? "")}&reason=${encodeURIComponent(`결제 확인 중 문제가 생겼어요. ${cfg.tel}로 연락 주세요.`)}`);
       }
+    }
+    if (path === "/v1/journeys") {
+      if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
+      try { return send(200, await runJourneys(ctxDeps, now)); } catch (e) { return fail(e); }
     }
     if (path === "/v1/purge") {
       if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
