@@ -236,7 +236,7 @@ OBJECTS = [
         ("diagnosis", "TEXT", "진단(상병)", {}),
         ("treatment", "TEXT", "치료", {}),
         ("prescriptionNote", "TEXT", "처방", {}),
-        ("plan", "TEXT", "계획·주의", {}),
+        ("carePlan", "TEXT", "계획·주의", {}),  # plan은 Twenty 예약어
         ("recordStatus", "SELECT", "상태", {"options": opts(("DRAFT", "작성 중"), ("SIGNED", "서명")), "defaultValue": "'DRAFT'"}),
         ("signedAt", "DATE_TIME", "서명 일시", {}),
         ("contentHash", "TEXT", "서명 해시", {}),
