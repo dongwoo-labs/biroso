@@ -6,7 +6,7 @@ import { createHandler } from "../server/handler.mjs";
 import { priceOrder, isRemote } from "../server/pricing.mjs";
 import { availableSlots, daySlots, weekday } from "../server/slots.mjs";
 import { verifyAuthSignature, createNicepay, PaymentError } from "../server/nicepay.mjs";
-import { SlotTaken } from "../server/twenty.mjs";
+import { SlotTaken, isOrphan } from "../server/twenty.mjs";
 import { runPurge } from "../server/purge.mjs";
 
 const SHIPPING = { base: 3500, remoteExtra: 2000, freeOver: 100000 };
@@ -430,4 +430,12 @@ test("파기: 결제하지 않은 주문과 그 문진·고객, 보유기간 지
   assert.deepEqual(r, { orders: 1, intakes: 2, consults: 0, people: 1 });
   assert.deepEqual(t.s.orders.map((o) => o.id), ["o2"]);
   assert.deepEqual(t.s.people.map((p) => p.id), ["p2"]);
+});
+
+test("파기: 차트번호가 있거나 수납·예약이 남은 사람은 지우지 않는다", () => {
+  assert.equal(isOrphan({ id: "p", clinicOrders: [], appointments: [] }), true);
+  assert.equal(isOrphan({ id: "p", chartNo: "000761", clinicOrders: [] }), false);
+  assert.equal(isOrphan({ id: "p", payments: [{ id: "x" }] }), false);
+  assert.equal(isOrphan({ id: "p", appointments: [{ id: "a" }] }), false);
+  assert.equal(isOrphan(null), false);
 });

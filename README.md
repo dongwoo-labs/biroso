@@ -26,7 +26,7 @@
 | `public/media/` | 기존 사이트 그림(1200px webp로 줄임) |
 | `server/` | 주문·결제·예약·환불·파기 API (`handler.mjs`가 라우터) |
 | `api/` | Vercel 함수(전부 `server/handler.mjs`를 부른다) |
-| `crm/` | Twenty 객체 만들기(`setup_clinic_objects.py`), 옮겨 온 콘텐츠 넣기(`seed_content.py`) |
+| `crm/` | Twenty 객체 만들기(`setup_clinic_objects.py`), 옮겨 온 콘텐츠 넣기(`seed_content.py`), 업스트림 환자 가져오기(`import_upstream_patients.py`) |
 | `scripts/import-site.mjs` | 기존 사이트에서 콘텐츠·그림 다시 가져오기(`npm run import-site`) |
 
 ## 처음 설정
@@ -60,11 +60,28 @@
 - Twenty는 공용 스택(`dongwoo-labs/crm`, `~/srv/crm`)의 `biroso` 워크스페이스를 쓴다. 렌탈ON과 사용자·역할·API 키·데이터 스키마가 따로고, DB 인스턴스와 접속기록 프록시는 같이 쓴다.
 - 설치, Cloudflare, 백업·복원, 맥 보호 조치: `infra/mac/README.md`
 
+## 업스트림 환자 가져오기
+
+업스트림 '환자 목록'에서 내려받은 엑셀(15열)을 Twenty 환자로 옮긴다. 원본 파일에는 환자 개인정보가 있으니 맥 밖으로 보내지 않는다.
+
+```bash
+cd crm
+TWENTY_URL=… TWENTY_API_KEY=… python3 import_upstream_patients.py ~/Downloads/환자_목록.xlsx          # 미리보기(건수·형식 문제만 출력)
+TWENTY_URL=… TWENTY_API_KEY=… python3 import_upstream_patients.py ~/Downloads/환자_목록.xlsx --apply  # 쓰기
+```
+
+- 차트번호가 키다(앞자리 0 그대로). 같은 차트번호가 있으면 바뀐 칸만 고치고 없으면 만든다. 전환 전까지 여러 번 돌려도 된다. 전환 뒤에는 CRM에서 고친 값을 덮어쓰므로 돌리지 않는다.
+- 전화번호로 환자를 합치지 않는다. 같은 번호를 쓰는 환자 수를 미리보기에 보여 준다.
+- 광고 수신 동의가 '예'인 환자는 동의원장에 '업스트림 이관(원 동의 시각 미상)'으로 한 줄 남긴다.
+- 특이사항은 건강정보가 섞일 수 있어 console에 보이지 않는 `특이사항(업스트림)` 칸에 둔다.
+- 나이 열은 생년월일에서 계산되므로 쓰지 않는다. 예약·패키지·진료 이력은 이 파일에 없다.
+- 테스트: `python3 -m unittest crm/test_import_upstream.py`
+
 ## 개인정보
 
 - 건강정보(문진)는 `문진` 객체에 따로 두고 별도 동의(개인정보보호법 제23조)를 받는다. Twenty 역할에서 문진 읽기를 진료 담당자로만 열어 두는 것을 권한다.
 - 문진의 질병 경험·최근 복용 약은 선택지(메디스트림 기본 문진표와 같은 목록)로 받고, 임신·수유는 여성에게만 묻는다.
-- 결제하지 않고 떠난 주문은 24시간 뒤, 문진은 1년 뒤, 빠른 상담은 90일 뒤 자동 파기(`/api/v1/purge`, 매일 04:00 KST). 결제된 주문 기록은 전자상거래법에 따라 5년 남긴다.
+- 결제하지 않고 떠난 주문은 24시간 뒤, 문진은 1년 뒤, 빠른 상담은 90일 뒤 자동 파기(`/api/v1/purge`, 매일 04:00 KST). 결제된 주문 기록은 전자상거래법에 따라 5년 남긴다. 차트번호가 있는 환자와 예약·수납이 남은 사람은 주문을 파기해도 지우지 않는다.
 - 동의문을 고치면 `src/data/notice.json`의 `version`과 서버 환경변수 `NOTICE_VERSIONS`를 함께 올린다.
 
 ## 한의원이 확인해야 할 것
