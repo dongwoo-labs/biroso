@@ -164,9 +164,90 @@ OBJECTS = [
         ("customer", "RELATION", "환자", {"target": "person", "inverse": "payments", "inverseLabel": "수납"}),
         ("appointment", "RELATION", "내원", {"target": "appointment", "inverse": "payments", "inverseLabel": "수납"}),
         ("amount", "CURRENCY", "금액", {}),
-        ("payMethod", "SELECT", "결제 수단", {"options": opts(("CARD", "카드"), ("CASH", "현금"), ("TRANSFER", "계좌이체"), ("LOCAL", "지역화폐"), ("ETC", "기타"))}),
+        ("payMethod", "SELECT", "결제 수단", {"options": opts(("CARD", "카드"), ("CASH", "현금"), ("TRANSFER", "계좌이체"), ("LOCAL", "지역화폐"), ("PACKAGE", "패키지 차감"), ("ETC", "기타"))}),
         ("paidAt", "DATE_TIME", "수납 일시", {}),
         ("memo", "TEXT", "메모", {}),
+    ]),
+    # 처방 요약(복약 관리용). 약재·용량 같은 처방 상세는 두지 않는다(진료기록 쪽). 복용 종료일 = 수령일(없으면 처방일) + 복용 일수 - 1.
+    # 연락 여정의 복약 3일차·중간·소진 전 연락이 이 날짜들을 기준으로 생긴다.
+    ("prescription", "prescriptions", "처방", "처방", "IconPill", [
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "prescriptions", "inverseLabel": "처방"}),
+        ("appointment", "RELATION", "내원", {"target": "appointment", "inverse": "prescriptions", "inverseLabel": "처방"}),
+        ("clinicOrder", "RELATION", "주문", {"target": "clinicOrder", "inverse": "prescriptions", "inverseLabel": "처방"}),
+        ("prescribedOn", "DATE", "처방일", {}),
+        ("days", "NUMBER", "복용 일수", {}),
+        ("receivedOn", "DATE", "수령일", {}),
+        ("endsOn", "DATE", "복용 종료일", {}),
+        ("doneCheckedAt", "DATE_TIME", "복용 완료 확인", {}),
+        ("doneCheckedBy", "RELATION", "복용 완료 확인자", {"target": "workspaceMember", "inverse": "checkedPrescriptions", "inverseLabel": "복용 완료 확인"}),
+        ("memo", "TEXT", "메모", {}),
+    ]),
+    # 패키지 상품 정의. 횟수형(COUNT: 10회권)·정액형(AMOUNT: 50만 원 충전). 이름은 name.
+    ("packageProduct", "packageProducts", "패키지 상품", "패키지 상품", "IconTicket", [
+        ("kind", "SELECT", "종류", {"options": opts(("COUNT", "횟수형"), ("AMOUNT", "정액형")), "defaultValue": "'COUNT'"}),
+        ("total", "NUMBER", "제공 횟수·금액(원)", {}),
+        ("price", "CURRENCY", "판매가", {}),
+        ("validDays", "NUMBER", "사용 기간(일)", {}),
+        ("active", "BOOLEAN", "판매 중", {"defaultValue": True}),
+    ]),
+    # 환자가 산 패키지. 잔여는 사용 원장으로 계산하고, remaining은 마지막 계산값(목록·필터용)이다.
+    ("patientPackage", "patientPackages", "환자 패키지", "환자 패키지", "IconTicket", [
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "patientPackages", "inverseLabel": "패키지"}),
+        ("packageProduct", "RELATION", "패키지 상품", {"target": "packageProduct", "inverse": "patientPackages", "inverseLabel": "판매"}),
+        ("kind", "SELECT", "종류", {"options": opts(("COUNT", "횟수형"), ("AMOUNT", "정액형")), "defaultValue": "'COUNT'"}),
+        ("total", "NUMBER", "제공 횟수·금액(원)", {}),
+        ("remaining", "NUMBER", "잔여(계산값)", {}),
+        ("startsOn", "DATE", "시작일", {}),
+        ("endsOn", "DATE", "만료일", {}),
+        ("packageStatus", "SELECT", "상태", {"options": opts(("ACTIVE", "사용 중"), ("ENDED", "종료"), ("REFUNDED", "환불")), "defaultValue": "'ACTIVE'"}),
+        ("endReason", "TEXT", "종료 사유", {}),
+    ]),
+    # 패키지 사용 원장. 고치지 않고 줄을 더한다(차감 취소도 한 줄). amount: 쓴 횟수·금액(취소는 음수로 계산).
+    ("packageEntry", "packageEntries", "패키지 원장", "패키지 원장", "IconListDetails", [
+        ("patientPackage", "RELATION", "환자 패키지", {"target": "patientPackage", "inverse": "entries", "inverseLabel": "원장"}),
+        ("appointment", "RELATION", "내원", {"target": "appointment", "inverse": "packageEntries", "inverseLabel": "패키지 사용"}),
+        ("entryKind", "SELECT", "구분", {"options": opts(("USE", "차감"), ("CANCEL", "차감 취소"), ("EXTEND", "기간 연장"), ("END", "종료"))}),
+        ("amount", "NUMBER", "횟수·금액(원)", {}),
+        ("extendDays", "NUMBER", "연장 일수", {}),
+        ("at", "DATE_TIME", "일시", {}),
+        ("memo", "TEXT", "메모", {}),
+    ]),
+    # 연락 여정의 단계 하나: 기준 사건 + N일 뒤 시각에 전화·메시지. journey가 같은 단계끼리 한 여정이다.
+    # activeFrom 이후에 생긴 사건만 대상('지금부터 들어오는 건만'). 값은 server/journey.mjs와 같아야 한다.
+    ("contactRule", "contactRules", "연락 단계", "연락 여정", "IconRoute", [
+        ("journey", "TEXT", "여정", {}),
+        ("event", "SELECT", "기준 사건", {"options": opts(
+            ("RX_START", "복약 시작"), ("RX_MID", "복약 중간"), ("RX_END", "복약 끝"), ("VISIT_DONE", "내원 완료"),
+            ("FIRST_VISIT", "첫 내원"), ("NO_SHOW", "노쇼"), ("CANCELLED", "예약 취소"), ("NO_RETURN", "마지막 내원"),
+            ("PACKAGE_END", "패키지 만료"))}),
+        ("offsetDays", "NUMBER", "며칠 뒤(앞이면 음수)", {}),
+        ("timeOfDay", "TEXT", "시각(HH:MM)", {}),
+        ("channel", "SELECT", "방법", {"options": opts(("CALL", "전화"), ("MESSAGE", "메시지")), "defaultValue": "'CALL'"}),
+        ("isAd", "BOOLEAN", "광고성", {"defaultValue": False}),
+        ("script", "TEXT", "안내 문구", {}),
+        ("active", "BOOLEAN", "사용", {"defaultValue": False}),
+        ("activeFrom", "DATE_TIME", "적용 시작", {}),
+        ("sortOrder", "NUMBER", "순서", {}),
+    ]),
+    # 연락 업무(실행 기록). 여정이 만들거나 직원이 직접 만든다. dedupeKey(<단계>:<사건 레코드>)로 같은 연락을 두 번 만들지 않는다.
+    ("contactTask", "contactTasks", "연락 업무", "연락 업무", "IconPhoneCall", [
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "contactTasks", "inverseLabel": "연락 업무"}),
+        ("contactRule", "RELATION", "연락 단계", {"target": "contactRule", "inverse": "tasks", "inverseLabel": "연락 업무"}),
+        ("channel", "SELECT", "방법", {"options": opts(("CALL", "전화"), ("MESSAGE", "메시지")), "defaultValue": "'CALL'"}),
+        ("isAd", "BOOLEAN", "광고성", {"defaultValue": False}),
+        ("dueAt", "DATE_TIME", "예정", {}),
+        ("taskStatus", "SELECT", "상태", {"options": opts(("TODO", "할 일"), ("DONE", "완료"), ("CANCELLED", "자동 취소")), "defaultValue": "'TODO'"}),
+        ("result", "SELECT", "결과", {"options": opts(("REACHED", "통화함"), ("NO_ANSWER", "안 받음"), ("CALLBACK", "다시 연락"),
+                                                    ("REACTION", "이상 반응"), ("STOP", "연락 그만"), ("SENT", "보냄"))}),
+        ("resultNote", "TEXT", "결과 메모", {}),
+        ("doneAt", "DATE_TIME", "처리 일시", {}),
+        ("sourceEvent", "TEXT", "원인 사건", {}),
+        ("sourceId", "TEXT", "원인 레코드", {}),
+        ("dedupeKey", "TEXT", "중복 방지 키", {"isUnique": True}),
+        ("cancelReason", "TEXT", "취소 사유", {}),
+        # 이상 반응 등 원장이 봐야 할 건. 원장 확인함에 뜨고, 확인하면 일시가 남는다.
+        ("needsDoctor", "BOOLEAN", "원장 확인 필요", {"defaultValue": False}),
+        ("doctorCheckedAt", "DATE_TIME", "원장 확인", {}),
     ]),
     # 문진(건강정보 = 개인정보보호법 제23조 민감정보). 고객·주문과 따로 둬서 역할로 열람을 막을 수 있게 한다.
     ("intake", "intakes", "문진", "문진", "IconStethoscope", [
@@ -267,7 +348,30 @@ PERSON_FIELDS = [
     ("upstreamNote", "TEXT", "특이사항(업스트림)", {}),
     # 예약 안내·공지 같은 정보성 알림. 광고(consentMarketing)와 따로 받는다.
     ("consentNotice", "BOOLEAN", "알림·공지 수신", {"defaultValue": True}),
+    # 연락 그만하기. 범위: 광고 전체(AD) 또는 모든 연락(ALL). 여정 하나만 그만둘 때는 stoppedJourneys에 여정 이름을 쉼표로 더한다.
+    ("contactStop", "SELECT", "연락 그만", {"options": opts(("AD", "광고 연락 그만"), ("ALL", "모든 연락 그만"))}),
+    ("stoppedJourneys", "TEXT", "그만둔 연락 여정", {}),
 ]
+
+# 연락 여정 기본값(업스트림·우주CRM의 흔한 시나리오). 처음 한 번만 넣고 꺼 둔다. 켜는 시점부터 들어오는 건만 대상이다.
+DEFAULT_RULES = [
+    ("복약 관리", "RX_START", 3, "11:00", "CALL", False, "복약 3일째예요. 드시기 불편한 점이 없는지 여쭤봐요."),
+    ("복약 관리", "RX_MID", 0, "11:00", "MESSAGE", False, "복약 중간 안내: 식사·수분 섭취와 복용 시간을 다시 알려 드려요."),
+    ("복약 관리", "RX_END", -3, "11:00", "CALL", False, "약이 3일 남았어요. 경과를 여쭤보고 다음 진료를 안내해요."),
+    ("노쇼·취소", "NO_SHOW", 1, "10:30", "CALL", False, "어제 예약에 오지 못하신 이유를 여쭤보고 다시 잡아 드려요."),
+    ("노쇼·취소", "CANCELLED", 7, "10:30", "CALL", False, "취소하신 뒤 다시 예약하지 않으셨어요. 불편한 점을 여쭤봐요."),
+    ("재내원", "NO_RETURN", 90, "14:00", "MESSAGE", True, "마지막 내원 뒤 3개월이 지났어요. 계절 진료를 안내해요."),
+    ("패키지", "PACKAGE_END", -14, "11:00", "CALL", False, "패키지 만료 2주 전이에요. 남은 횟수를 알려 드려요."),
+]
+
+
+def seed_contact_rules():
+    if rest("GET", "/contactRules?limit=1")["data"]["contactRules"]:
+        return
+    for i, (journey, event, days, time, channel, ad, script) in enumerate(DEFAULT_RULES):
+        rest("POST", "/contactRules", {"name": f"{journey} · {script.split('.')[0][:20]}", "journey": journey, "event": event, "offsetDays": days,
+                                        "timeOfDay": time, "channel": channel, "isAd": ad, "script": script, "active": False, "sortOrder": i})
+    print("  연락 여정 기본값", len(DEFAULT_RULES), "단계(꺼 둠)")
 
 
 def fix_inverse_names():
@@ -392,6 +496,7 @@ def main():
     migrate_orders(detail)
     sync_select_options(objects(detail=True))
     sync_labels(objects(detail=True))
+    seed_contact_rules()
     print("완료")
 
 

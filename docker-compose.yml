@@ -3,7 +3,7 @@
 #   caddy        도메인별 라우팅: 홈페이지 정적 파일, /api/* → api
 #   api          주문·결제·예약·환불·파기 API (server/server.mjs)
 #   builder      Twenty 콘텐츠로 홈페이지를 다시 빌드한다(Vercel 배포 훅 대신)
-#   cron         매일 03:00 재빌드, 04:00 파기 (Vercel 크론 대신, 한국 시간)
+#   cron         매일 03:00 재빌드, 04:00 파기, 07:00·13:00 연락 여정 (Vercel 크론 대신, 한국 시간)
 
 name: biroso
 
@@ -85,6 +85,8 @@ services:
       JOBS: |
         03:00 POST http://builder:8080/rebuild
         04:00 GET http://api:8788/v1/purge
+        07:00 GET http://api:8788/v1/journeys
+        13:00 GET http://api:8788/v1/journeys
     depends_on: [api, builder]
 
 networks:

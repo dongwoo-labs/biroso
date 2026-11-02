@@ -12,6 +12,7 @@
   },
   "crons": [
     { "path": "/api/v1/purge", "schedule": "0 19 * * *" },
+    { "path": "/api/v1/journeys", "schedule": "0 22 * * *" },
     { "path": "/api/cron/rebuild", "schedule": "0 18 * * *" }
   ]
 }
