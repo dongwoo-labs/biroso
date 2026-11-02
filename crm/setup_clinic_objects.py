@@ -220,6 +220,33 @@ OBJECTS = [
         ("memo", "TEXT", "메모", {}),
         ("upstreamId", "TEXT", "업스트림 ID(이관)", {"isUnique": True}),
     ]),
+    # 진료기록(차팅). 원장이 업무 화면 '진료실'에서 쓰고 서명한다. 서명한 기록은 고치지 않고, 고칠 때는 사유와 함께 새 판을 만든다
+    # (같은 chainId, version + 1, supersedes = 앞 판 id). contentHash는 서명할 때 화면이 계산한 내용 해시이고,
+    # 서버의 봉인 작업(server/charts.mjs)이 서명한 기록을 Twenty 밖 장부에 암호화해 남긴 뒤 sealedAt·sealNo를 채운다.
+    # 보존: 진료기록부 보존 기간 동안 지우지 않는다(파기 작업은 진료기록이 있는 환자를 지우지 않는다).
+    # 권한: Twenty 설정 > 역할에서 진료 역할만 이 객체를 읽고 쓰게 하고, 삭제는 누구에게도 주지 않는다(README '진료기록').
+    ("medicalRecord", "medicalRecords", "진료기록", "진료기록", "IconStethoscope", [
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "medicalRecords", "inverseLabel": "진료기록"}),
+        ("appointment", "RELATION", "내원", {"target": "appointment", "inverse": "medicalRecords", "inverseLabel": "진료기록"}),
+        ("doctor", "RELATION", "진료의(서명)", {"target": "workspaceMember", "inverse": "writtenMedicalRecords", "inverseLabel": "작성한 진료기록"}),
+        ("visitAt", "DATE_TIME", "진료 일시", {}),
+        ("chiefComplaint", "TEXT", "주소(주된 호소)", {}),
+        ("history", "TEXT", "현병력·과거력", {}),
+        ("findings", "TEXT", "진찰 소견", {}),
+        ("diagnosis", "TEXT", "진단(상병)", {}),
+        ("treatment", "TEXT", "치료", {}),
+        ("prescriptionNote", "TEXT", "처방", {}),
+        ("plan", "TEXT", "계획·주의", {}),
+        ("recordStatus", "SELECT", "상태", {"options": opts(("DRAFT", "작성 중"), ("SIGNED", "서명")), "defaultValue": "'DRAFT'"}),
+        ("signedAt", "DATE_TIME", "서명 일시", {}),
+        ("contentHash", "TEXT", "서명 해시", {}),
+        ("chainId", "TEXT", "기록 묶음(판끼리 같음)", {}),
+        ("version", "NUMBER", "판", {}),
+        ("supersedes", "TEXT", "앞 판 ID", {}),
+        ("amendReason", "TEXT", "수정 사유", {}),
+        ("sealedAt", "DATE_TIME", "봉인 일시", {}),
+        ("sealNo", "NUMBER", "봉인 번호", {}),
+    ]),
     # 연락 여정의 단계 하나: 기준 사건 + N일 뒤 시각에 전화·메시지. journey가 같은 단계끼리 한 여정이다.
     # activeFrom 이후에 생긴 사건만 대상('지금부터 들어오는 건만'). 값은 server/journey.mjs와 같아야 한다.
     ("contactRule", "contactRules", "연락 단계", "연락 여정", "IconRoute", [

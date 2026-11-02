@@ -108,7 +108,7 @@ cd ~/srv/<프로젝트> && git pull && DOCKER_CONTEXT=colima-selfhost docker com
 
 ## 백업과 복원
 
-- `infra/mac/backup.sh`가 그 프로젝트에 있는 것만 묶는다. `crm`은 Twenty DB(pg_dump, 두 워크스페이스 모두), 업로드 파일, 접속기록, `rentalon`은 파기기록과 Matomo DB, 모두 `.env`. 이것을 age 공개키(`BACKUP_AGE_RECIPIENTS`)로 암호화한다. 결과는 `~/srv/backups/<프로젝트>/`, 상태는 같은 폴더의 `status.log`, 실패하면 맥 알림이 뜬다.
+- `infra/mac/backup.sh`가 그 프로젝트에 있는 것만 묶는다. `crm`은 Twenty DB(pg_dump, 두 워크스페이스 모두), 업로드 파일, 접속기록, `rentalon`은 파기기록과 Matomo DB, `biroso`는 진료기록 봉인 장부, 모두 `.env`. 이것을 age 공개키(`BACKUP_AGE_RECIPIENTS`)로 암호화한다. 결과는 `~/srv/backups/<프로젝트>/`, 상태는 같은 폴더의 `status.log`, 실패하면 맥 알림이 뜬다.
 - 복호화 개인키는 이 맥에 두지 않는다. 맥을 잃어버려도 백업 파일만으로는 내용을 볼 수 없게 하려는 것이다. 키는 비밀번호 관리자와 USB 등 두 곳에 둔다.
 - 외장 디스크: `BACKUP_COPY_DIRS=/Volumes/<디스크>/selfhost-backups`(여러 곳은 `:`로 구분). 연결되지 않은 날은 건너뛰고 `status.log`에 SKIP을 남긴다. 외장 디스크는 APFS(암호화)로 포맷한다.
 - 국내 클라우드: `rclone config`로 네이버 클라우드 Object Storage(S3 호환, 엔드포인트 `https://kr.object.ncloudstorage.com`) 리모트를 만들고 `BACKUP_RCLONE_REMOTE=<리모트>:<버킷>/<프로젝트>`. 버킷은 비공개로 두고 그 버킷만 쓸 수 있는 키를 쓴다.

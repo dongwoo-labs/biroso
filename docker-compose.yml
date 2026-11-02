@@ -50,6 +50,10 @@ services:
       ADMIN_SECRET: ${ADMIN_SECRET:-}
       INTAKE_RETENTION_DAYS: ${INTAKE_RETENTION_DAYS:-365}
       PENDING_ORDER_HOURS: ${PENDING_ORDER_HOURS:-24}
+      # 진료기록 봉인 장부. 키는 `openssl rand -hex 32`로 만들고 .env와 별도로(비밀번호 관리자 등) 보관한다.
+      CHART_LEDGER_KEY: ${CHART_LEDGER_KEY:-}
+      CHART_LEDGER_PATH: /data/charts/ledger.jsonl
+    volumes: [charts:/data/charts]
     networks:
       default:
       crm:
@@ -88,6 +92,8 @@ services:
         07:00 GET http://api:8788/v1/journeys
         13:00 GET http://api:8788/v1/journeys
         19:00 GET http://api:8788/v1/journeys
+        */10 GET http://api:8788/v1/charts/seal
+        05:30 GET http://api:8788/v1/charts/verify
     depends_on: [api, builder]
 
 networks:
@@ -97,4 +103,6 @@ networks:
 
 volumes:
   site:
+  # 진료기록 봉인 장부. 진료기록 보존 기간(10년) 동안 지우지 않고 암호화 백업에 넣는다(infra/mac/README.md).
+  charts:
   caddy-data:
