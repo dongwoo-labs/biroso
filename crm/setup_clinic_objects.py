@@ -76,6 +76,11 @@ APPT_STATUS = opts(("REQUESTED", "예약 신청"), ("CONFIRMED", "확정"), ("AR
                    ("TREATED", "수납 대기"), ("DONE", "완료"), ("NO_SHOW", "노쇼"), ("CANCELLED", "취소"))
 APPT_SOURCES = opts(("HOMEPAGE", "홈페이지"), ("PHONE", "전화"), ("NAVER", "네이버 예약"), ("WALKIN", "워크인"), ("STAFF", "직원 등록"))
 
+# 발송. 값은 crm services/messenger, console(src/industries/messages.ts)과 같아야 한다(렌탈ON과 같은 모양).
+MSG_CHANNELS = opts(("ALIMTALK", "알림톡(실패하면 문자)"), ("SMS", "문자"))
+MSG_STATUS = opts(("QUEUED", "대기"), ("SENDING", "보내는 중"), ("SENT", "보냄"), ("FAILED", "실패"), ("SKIPPED", "안 보냄(동의·연락 그만)"), ("CANCELLED", "취소"))
+MSG_TYPES = opts(("ATA", "알림톡"), ("SMS", "문자"), ("LMS", "장문 문자"))
+
 # (nameSingular, namePlural, 단수 라벨, 복수 라벨, 아이콘, [필드...])
 # 필드: (name, type, label, extra)  extra에 options/defaultValue/relation 대상
 OBJECTS = [
@@ -219,12 +224,14 @@ OBJECTS = [
         ("event", "SELECT", "기준 사건", {"options": opts(
             ("RX_START", "복약 시작"), ("RX_MID", "복약 중간"), ("RX_END", "복약 끝"), ("VISIT_DONE", "내원 완료"),
             ("FIRST_VISIT", "첫 내원"), ("NO_SHOW", "노쇼"), ("CANCELLED", "예약 취소"), ("NO_RETURN", "마지막 내원"),
-            ("PACKAGE_END", "패키지 만료"))}),
+            ("PACKAGE_END", "패키지 만료"), ("APPT", "예약일"))}),
         ("offsetDays", "NUMBER", "며칠 뒤(앞이면 음수)", {}),
         ("timeOfDay", "TEXT", "시각(HH:MM)", {}),
         ("channel", "SELECT", "방법", {"options": opts(("CALL", "전화"), ("MESSAGE", "메시지")), "defaultValue": "'CALL'"}),
         ("isAd", "BOOLEAN", "광고성", {"defaultValue": False}),
         ("script", "TEXT", "안내 문구", {}),
+        # 메시지 단계에 문구를 고르면 직원 연락 업무 대신 그 시각에 자동 발송한다(발송 내역에 남음). 비우면 직원이 보낼 연락 업무.
+        ("messageTemplate", "RELATION", "자동 발송 문구", {"target": "messageTemplate", "inverse": "contactRules", "inverseLabel": "연락 단계"}),
         ("active", "BOOLEAN", "사용", {"defaultValue": False}),
         ("activeFrom", "DATE_TIME", "적용 시작", {}),
         ("sortOrder", "NUMBER", "순서", {}),
@@ -248,6 +255,35 @@ OBJECTS = [
         # 이상 반응 등 원장이 봐야 할 건. 원장 확인함에 뜨고, 확인하면 일시가 남는다.
         ("needsDoctor", "BOOLEAN", "원장 확인 필요", {"defaultValue": False}),
         ("doctorCheckedAt", "DATE_TIME", "원장 확인", {}),
+    ]),
+    # 환자에게 보내는 메시지(솔라피 알림톡, 실패하면 문자 대체). 공용 CRM의 발송 서비스(dongwoo-labs/crm services/messenger)가
+    # '대기' 건을 보내기 직전에 동의·연락 그만을 다시 확인하고 보낸다. 건강정보는 문구에 넣지 않는다.
+    ("messageTemplate", "messageTemplates", "메시지 문구", "메시지 문구", "IconTemplate", [
+        ("channel", "SELECT", "보내는 방식", {"options": MSG_CHANNELS, "defaultValue": "'ALIMTALK'"}),
+        # 카카오 검수를 받은 알림톡 템플릿 ID(솔라피). 문구는 검수받은 글과 같아야 한다. #{고객}, #{날짜} 같은 변수를 쓴다.
+        ("kakaoTemplateId", "TEXT", "알림톡 템플릿 ID", {}),
+        ("body", "TEXT", "문구", {}),
+        ("isAd", "BOOLEAN", "광고", {"defaultValue": False}),
+        ("active", "BOOLEAN", "사용", {"defaultValue": False}),
+        ("sortOrder", "NUMBER", "순서", {}),
+    ]),
+    ("message", "messages", "발송", "발송 내역", "IconSend", [
+        ("customer", "RELATION", "받는 분", {"target": "person", "inverse": "messages", "inverseLabel": "발송 내역"}),
+        ("messageTemplate", "RELATION", "문구", {"target": "messageTemplate", "inverse": "messages", "inverseLabel": "발송"}),
+        ("sentBy", "RELATION", "보낸 직원", {"target": "workspaceMember", "inverse": "sentMessages", "inverseLabel": "보낸 메시지"}),
+        ("text", "TEXT", "보낸 글", {}),
+        ("variables", "RAW_JSON", "변수", {}),
+        ("isAd", "BOOLEAN", "광고", {"defaultValue": False}),
+        ("msgStatus", "SELECT", "발송 상태", {"options": MSG_STATUS, "defaultValue": "'QUEUED'"}),
+        ("sentType", "SELECT", "보낸 방식", {"options": MSG_TYPES}),
+        ("fallback", "BOOLEAN", "문자 대체", {"defaultValue": False}),
+        ("batch", "TEXT", "발송 묶음", {}),
+        ("scheduledAt", "DATE_TIME", "보낼 시각", {}),
+        ("sentAt", "DATE_TIME", "보낸 시각", {}),
+        ("doneAt", "DATE_TIME", "결과 시각", {}),
+        ("error", "TEXT", "실패·제외 사유", {}),
+        ("providerId", "TEXT", "솔라피 메시지 ID", {}),
+        ("dedupeKey", "TEXT", "중복 방지 키", {"isUnique": True}),
     ]),
     # 문진(건강정보 = 개인정보보호법 제23조 민감정보). 고객·주문과 따로 둬서 역할로 열람을 막을 수 있게 한다.
     ("intake", "intakes", "문진", "문진", "IconStethoscope", [
@@ -362,16 +398,37 @@ DEFAULT_RULES = [
     ("노쇼·취소", "CANCELLED", 7, "10:30", "CALL", False, "취소하신 뒤 다시 예약하지 않으셨어요. 불편한 점을 여쭤봐요."),
     ("재내원", "NO_RETURN", 90, "14:00", "MESSAGE", True, "마지막 내원 뒤 3개월이 지났어요. 계절 진료를 안내해요."),
     ("패키지", "PACKAGE_END", -14, "11:00", "CALL", False, "패키지 만료 2주 전이에요. 남은 횟수를 알려 드려요."),
+    ("예약 알림", "APPT", -1, "18:00", "MESSAGE", False, "내일 예약을 문자로 알려 드려요."),
+]
+
+# 메시지 문구 기본값. 알림톡은 카카오 검수가 필요해 처음에는 문자(SMS)로 넣고 꺼 둔다. 변수: #{고객} #{날짜} #{시간} #{한의원}
+DEFAULT_TEMPLATES = [
+    ("예약 알림", "SMS", False, "[#{한의원}] #{고객}님, 내일 #{날짜} #{시간} 예약을 알려 드려요. 바꾸시려면 전화 주세요."),
+    ("복약 중간 안내", "SMS", False, "[#{한의원}] #{고객}님, 복약 중간이에요. 식사·수분 섭취와 복용 시간을 지켜 주세요. 불편하시면 전화 주세요."),
+    ("재내원 안내", "SMS", True, "[#{한의원}] #{고객}님, 마지막 내원 뒤 3개월이 지났어요. 계절 진료를 안내해 드려요."),
 ]
 
 
 def seed_contact_rules():
-    if rest("GET", "/contactRules?limit=1")["data"]["contactRules"]:
-        return
+    """기본 단계 중 없는 것(같은 여정·기준 사건)만 꺼 둔 채로 넣는다. 문구 기본값도 같은 이름이 없을 때만 넣고, 같은 이름의 단계에 건다."""
+    templates = {t["name"]: t["id"] for t in rest("GET", "/messageTemplates?limit=200")["data"]["messageTemplates"]}
+    added_t = 0
+    for i, (name, channel, ad, body) in enumerate(DEFAULT_TEMPLATES):
+        if name not in templates:
+            templates[name] = rest("POST", "/messageTemplates", {"name": name, "channel": channel, "isAd": ad, "body": body, "active": False, "sortOrder": i})["data"]["createMessageTemplate"]["id"]
+            added_t += 1
+    have = {(r["journey"], r["event"]) for r in rest("GET", "/contactRules?limit=200")["data"]["contactRules"]}
+    added = 0
     for i, (journey, event, days, time, channel, ad, script) in enumerate(DEFAULT_RULES):
+        if (journey, event) in have:
+            continue
+        tpl = templates.get(journey) if channel == "MESSAGE" else None
         rest("POST", "/contactRules", {"name": f"{journey} · {script.split('.')[0][:20]}", "journey": journey, "event": event, "offsetDays": days,
-                                        "timeOfDay": time, "channel": channel, "isAd": ad, "script": script, "active": False, "sortOrder": i})
-    print("  연락 여정 기본값", len(DEFAULT_RULES), "단계(꺼 둠)")
+                                        "timeOfDay": time, "channel": channel, "isAd": ad, "script": script, "active": False, "sortOrder": i,
+                                        **({"messageTemplateId": tpl} if tpl else {})})
+        added += 1
+    if added or added_t:
+        print("  연락 여정 기본값", added, "단계, 문구", added_t, "개(꺼 둠)")
 
 
 def fix_inverse_names():

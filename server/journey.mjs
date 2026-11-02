@@ -1,5 +1,7 @@
 // 연락 여정: 기준 사건 + N일 → 연락 업무(contactTask)를 만든다(매일 크론). 업스트림 연락 여정을 대신한다.
-//   사건: 복약 시작·중간·끝(처방), 내원 완료·첫 내원·노쇼·예약 취소·마지막 내원(예약·환자), 패키지 만료
+//   사건: 복약 시작·중간·끝(처방), 내원 완료·첫 내원·노쇼·예약 취소·마지막 내원·예약일(예약·환자), 패키지 만료
+//   메시지 단계에 자동 발송 문구가 있으면 연락 업무 대신 발송(message, 대기)을 만든다. 공용 CRM 발송 서비스가 보낼 시각에
+//   동의를 다시 확인하고 보낸다. 자동 발송은 지난 날 것을 따라잡지 않는다(어제 보낼 예약 알림을 오늘 보내지 않게).
 //   - 단계(contactRule)를 켠 시각(activeFrom) 뒤에 생긴 사건만 대상('지금부터 들어오는 건만')
 //   - 예정일이 오늘이거나 최근 3일 안이면 만든다(크론이 하루 빠져도 따라잡음). dedupeKey(<단계>:<사건>)로 한 번만.
 //   - 광고성 단계는 광고 수신 동의자만, 정보성 메시지는 알림 수신 거부자를 뺀다. '연락 그만'(광고·전체·여정)도 지킨다.
@@ -10,6 +12,7 @@ const DAY = 86_400_000;
 const KST = 9 * 3600_000;
 const CATCH_UP_DAYS = 3;
 const UPCOMING = ["REQUESTED", "CONFIRMED", "ARRIVED", "IN_ROOM", "TREATED", "DONE"];
+const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 
 const kstDate = (d) => new Date(new Date(d).getTime() + KST).toISOString().slice(0, 10);
 const addDays = (ymd, n) => new Date(Date.parse(`${ymd}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
@@ -25,10 +28,15 @@ export function rxDates(rx) {
   return { start, mid: addDays(start, Math.floor((days - 1) / 2)), end };
 }
 
-// 단계 하나의 사건들: { key, personId, date(사건 날짜, 한국), since(사건이 생긴 시각) }
+// 문구 변수용 날짜: 11/5(목)
+const dayLabel = (ymd) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}(${WEEK[new Date(`${ymd}T00:00:00Z`).getUTCDay()]})`;
+const hm = (d) => new Date(new Date(d).getTime() + KST).toISOString().slice(11, 16);
+
+// 단계 하나의 사건들: { key, personId, date(사건 날짜, 한국), since(사건이 생긴 시각), vars(문구 변수) }
 export function eventsOf(rule, d) {
   const out = [];
-  const push = (personId, sourceId, date, since) => personId && date && out.push({ key: `${rule.id}:${sourceId}`, sourceId, personId, date, since: since ?? `${date}T00:00:00+09:00` });
+  const push = (personId, sourceId, date, since, vars = {}) =>
+    personId && date && out.push({ key: `${rule.id}:${sourceId}`, sourceId, personId, date, since: since ?? `${date}T00:00:00+09:00`, vars: { "날짜": dayLabel(date), ...vars } });
   const apptsOf = new Map();
   for (const a of d.appointments) apptsOf.set(a.customerId, [...(apptsOf.get(a.customerId) ?? []), a]);
   // 사건 뒤에 다시 잡은 예약이 있으면 그 사건으로는 연락하지 않는다
@@ -67,6 +75,13 @@ export function eventsOf(rule, d) {
     case "PACKAGE_END":
       for (const k of d.packages) if (k.packageStatus === "ACTIVE" && k.endsOn) push(k.customerId, `${k.id}@${k.endsOn.slice(0, 10)}`, k.endsOn.slice(0, 10), k.createdAt);
       break;
+    // 예약일(예약 알림). 시각이 바뀌면 키가 바뀌어 예전 알림은 취소되고 새로 잡힌다.
+    case "APPT":
+      for (const a of d.appointments) {
+        if (!["REQUESTED", "CONFIRMED"].includes(a.appointmentStatus) || !a.scheduledAt) continue;
+        push(a.customerId, `${a.id}@${new Date(a.scheduledAt).toISOString()}`, kstDate(a.scheduledAt), a.createdAt, { "시간": hm(a.scheduledAt) });
+      }
+      break;
   }
   return out;
 }
@@ -81,13 +96,17 @@ export function allowed(rule, p) {
   return !stopped.includes(rule.journey);
 }
 
-// 만들 연락 업무와 취소할 연락 업무
+const fullName = (p) => [p?.name?.lastName, p?.name?.firstName].filter(Boolean).join("") || "환자";
+
+// 만들 연락 업무·발송과 취소할 연락 업무·발송
 export function plan(d, now = new Date()) {
   const today = kstDate(now);
   const people = new Map(d.people.map((p) => [p.id, p]));
-  const have = new Set(d.tasks.map((t) => t.dedupeKey).filter(Boolean));
+  const messages = d.messages ?? [];
+  const have = new Set([...d.tasks, ...messages].map((t) => t.dedupeKey).filter(Boolean));
   const valid = new Set();
   const create = [];
+  const send = [];
   for (const rule of d.rules) {
     if (!rule.active) continue;
     const from = rule.activeFrom ? new Date(rule.activeFrom) : null;
@@ -97,10 +116,24 @@ export function plan(d, now = new Date()) {
       if (!allowed(rule, p)) continue;
       valid.add(e.key);
       const due = addDays(e.date, Number(rule.offsetDays) || 0);
-      if (due > today || due < addDays(today, -CATCH_UP_DAYS) || have.has(e.key)) continue;
+      const auto = rule.channel === "MESSAGE" && rule.messageTemplateId;
+      if (due > today || due < addDays(today, auto ? 0 : -CATCH_UP_DAYS) || have.has(e.key)) continue;
       have.add(e.key);
+      if (auto) {
+        send.push({
+          name: `${rule.journey ?? "메시지"} · ${fullName(p)}`,
+          customerId: e.personId,
+          messageTemplateId: rule.messageTemplateId,
+          isAd: Boolean(rule.isAd),
+          msgStatus: "QUEUED",
+          scheduledAt: at(due, rule.timeOfDay),
+          variables: { "고객": fullName(p), ...e.vars },
+          dedupeKey: e.key,
+        });
+        continue;
+      }
       create.push({
-        name: `${rule.journey ?? "연락"} · ${[p.name?.lastName, p.name?.firstName].filter(Boolean).join("") || "환자"}`,
+        name: `${rule.journey ?? "연락"} · ${fullName(p)}`,
         customerId: e.personId,
         contactRuleId: rule.id,
         channel: rule.channel ?? "CALL",
@@ -124,18 +157,32 @@ export function plan(d, now = new Date()) {
     const reason = !rule?.active ? "연락 단계를 껐어요" : rule && !allowed(rule, p) ? "연락 그만·수신 거부" : "예약·처방·패키지가 바뀌었어요";
     cancel.push({ id: t.id, patch: { taskStatus: "CANCELLED", cancelReason: reason, doneAt: now.toISOString() } });
   }
-  return { create, cancel };
+  // 여정이 만든, 아직 보내지 않은 발송(키 앞부분이 단계 id) 중 사건이 더는 맞지 않는 것
+  const unsend = [];
+  for (const m of messages) {
+    if (m.msgStatus !== "QUEUED" || !m.dedupeKey || valid.has(m.dedupeKey)) continue;
+    const rule = rules.get(m.dedupeKey.split(":")[0]);
+    if (!rule) continue;
+    const reason = !rule.active ? "연락 단계를 껐어요" : !allowed(rule, people.get(m.customerId)) ? "연락 그만·수신 거부" : "예약·처방·패키지가 바뀌었어요";
+    unsend.push({ id: m.id, patch: { msgStatus: "CANCELLED", error: reason, doneAt: now.toISOString() } });
+  }
+  return { create, cancel, send, unsend };
 }
 
 export async function runJourneys({ twenty, log = () => {} }, now = new Date()) {
   const d = await twenty.journeyData();
-  const { create, cancel } = plan(d, now);
+  const { create, cancel, send, unsend } = plan(d, now);
   let created = 0;
+  let queued = 0;
   for (const row of create) {
     if (await twenty.createContactTask(row)) created++;
   }
+  for (const row of send) {
+    if (await twenty.createMessage(row)) queued++;
+  }
   for (const c of cancel) await twenty.updateContactTask(c.id, c.patch);
-  const out = { created, cancelled: cancel.length };
+  for (const c of unsend) await twenty.updateMessage(c.id, c.patch);
+  const out = { created, cancelled: cancel.length, queued, unqueued: unsend.length };
   log({ ts: now.toISOString(), event: "journeys", ...out });
   return out;
 }
