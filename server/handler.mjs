@@ -8,6 +8,8 @@
 //   POST /v1/consults            빠른 상담 신청
 //   GET  /v1/purge               파기 작업(Bearer CRON_SECRET, Vercel 크론)
 //   GET  /v1/journeys            연락 여정 → 연락 업무 만들기·자동 취소(Bearer CRON_SECRET, 매일)
+//   GET  /v1/charts/seal         서명한 진료기록을 장부에 봉인(Bearer CRON_SECRET, 10분마다)
+//   GET  /v1/charts/verify       장부 체인·봉인한 진료기록이 그대로인지 검사(Bearer CRON_SECRET, 매일)
 //   GET  /healthz
 
 import { loadConfig } from "./config.mjs";
@@ -18,6 +20,7 @@ import { createAppointment, getSlots, getClosures } from "./appointments.mjs";
 import { createConsult } from "./consults.mjs";
 import { runPurge } from "./purge.mjs";
 import { runJourneys } from "./journey.mjs";
+import { createLedger, parseKey, runSeal, runVerify } from "./charts.mjs";
 
 const MAX_BODY = 32 * 1024;
 
@@ -45,6 +48,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
   const allow = createRateLimiter(cfg.rateLimitPer10Min);
   const log = deps.log ?? ((o) => console.log(JSON.stringify(o)));
   const ctxDeps = { cfg, twenty, nicepay, log };
+  const chartDeps = { twenty, log, ledger: deps.ledger ?? createLedger(cfg.chartLedgerPath ?? "/data/charts/ledger.jsonl"), key: parseKey(cfg.chartLedgerKey) };
 
   return async (req, res) => {
     const origin = req.headers.origin;
@@ -84,6 +88,10 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
     if (path === "/v1/journeys") {
       if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
       try { return send(200, await runJourneys(ctxDeps, now)); } catch (e) { return fail(e); }
+    }
+    if (path === "/v1/charts/seal" || path === "/v1/charts/verify") {
+      if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
+      try { return send(200, await (path === "/v1/charts/seal" ? runSeal : runVerify)(chartDeps, now)); } catch (e) { return fail(e); }
     }
     if (path === "/v1/purge") {
       if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });

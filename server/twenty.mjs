@@ -10,11 +10,11 @@ export class TwentyError extends Error {
 // 고유값 필드(isUnique)에 같은 값이 이미 있어 거절된 경우
 export const isDuplicate = (e) => e instanceof TwentyError && [400, 409].includes(e.status) && /duplicate|unique/i.test(e.message);
 
-// 파기해도 되는 고객인가: 주문·예약·문진·상담·수납·처방·패키지·연락 업무가 하나도 없고, 차트번호가 없는(한의원 환자가 아닌) 사람.
+// 파기해도 되는 고객인가: 주문·예약·문진·상담·수납·처방·패키지·연락 업무·진료기록이 하나도 없고, 차트번호가 없는(한의원 환자가 아닌) 사람.
 // 차트번호가 있는 환자는 진료기록 보존 대상이라 온라인 주문 파기와 함께 지우지 않는다.
 export function isOrphan(p) {
   if (!p || p.chartNo) return false;
-  return !["clinicOrders", "appointments", "intakes", "consultRequests", "payments", "prescriptions", "patientPackages", "contactTasks"].some((k) => (p[k]?.length ?? 0) > 0);
+  return !["clinicOrders", "appointments", "intakes", "consultRequests", "payments", "prescriptions", "patientPackages", "contactTasks", "medicalRecords"].some((k) => (p[k]?.length ?? 0) > 0);
 }
 
 export class SlotTaken extends Error {
@@ -158,6 +158,14 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     },
     async updateContactTask(id, patch) {
       await call("PATCH", `/contactTasks/${id}`, patch);
+    },
+
+    // 진료기록 봉인: 서명한 기록(검사 때는 봉인했던 기록도 — 서명 상태가 풀렸는지 보려고)
+    async listSignedCharts(includeSealed = false) {
+      return listAll("medicalRecords", includeSealed ? 'or(recordStatus[eq]:"SIGNED",sealNo[is]:NOT_NULL)' : 'recordStatus[eq]:"SIGNED"', "&depth=0");
+    },
+    async updateChart(id, patch) {
+      await call("PATCH", `/medicalRecords/${id}`, patch);
     },
 
     // 파기: 결제하지 않고 떠난 주문(+ 그 주문의 문진), 보유기간이 지난 문진·빠른 상담
