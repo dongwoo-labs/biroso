@@ -27,7 +27,7 @@ test("복약 3일차 전화: 오늘 예정이면 만들고, 이미 있으면 다
   assert.equal(create[0].dueAt, "2026-11-05T02:00:00.000Z");
   assert.equal(create[0].customerId, "p1");
   d.tasks = [{ id: "t1", dedupeKey: "r1:x1", taskStatus: "TODO", contactRuleId: "r1", customerId: "p1" }];
-  assert.deepEqual(plan(d, now), { create: [], cancel: [] });
+  assert.deepEqual(plan(d, now), { create: [], cancel: [], send: [], unsend: [] });
 });
 
 test("켜기 전에 생긴 사건은 대상이 아니고, 3일 넘게 지난 예정은 만들지 않는다", () => {
@@ -91,5 +91,31 @@ test("runJourneys: 중복으로 거절된 건은 세지 않는다", async () => 
   d.rules = [rule("r1", { event: "RX_START", offsetDays: 3 })];
   d.prescriptions = [{ id: "x1", customerId: "p1", receivedOn: "2026-11-02", days: 30, createdAt: "2026-11-01T01:00:00Z" }];
   const twenty = { journeyData: async () => d, createContactTask: async () => false, updateContactTask: async () => {} };
-  assert.deepEqual(await runJourneys({ twenty }, now), { created: 0, cancelled: 0 });
+  assert.deepEqual(await runJourneys({ twenty }, now), { created: 0, cancelled: 0, queued: 0, unqueued: 0 });
+});
+
+test("예약 알림: 자동 발송 문구가 있으면 연락 업무 대신 발송을 만들고, 지난 날 것은 따라잡지 않는다", () => {
+  const d = base();
+  d.rules = [rule("r5", { journey: "예약 알림", event: "APPT", offsetDays: -1, timeOfDay: "18:00", channel: "MESSAGE", messageTemplateId: "tpl" })];
+  d.appointments = [
+    { id: "a1", customerId: "p1", appointmentStatus: "CONFIRMED", scheduledAt: "2026-11-06T05:30:00Z", createdAt: "2026-11-01T00:00:00Z" }, // 내일 14:30
+    { id: "a2", customerId: "p2", appointmentStatus: "CONFIRMED", scheduledAt: "2026-11-05T05:30:00Z", createdAt: "2026-11-01T00:00:00Z" }, // 오늘: 어제 보냈어야 함
+  ];
+  const r = plan(d, now);
+  assert.equal(r.create.length, 0);
+  assert.equal(r.send.length, 1);
+  const m = r.send[0];
+  assert.equal(m.dedupeKey, "r5:a1@2026-11-06T05:30:00.000Z");
+  assert.equal(m.scheduledAt, "2026-11-05T09:00:00.000Z");
+  assert.deepEqual(m.variables, { "고객": "김p1", "날짜": "11/6(금)", "시간": "14:30" });
+  assert.equal(m.messageTemplateId, "tpl");
+  // 예약 시각이 바뀌면 예전 발송은 취소하고 새로 잡는다
+  d.messages = [{ id: "m1", dedupeKey: m.dedupeKey, msgStatus: "QUEUED", customerId: "p1" }];
+  d.appointments[0].scheduledAt = "2026-11-06T06:30:00Z";
+  const r2 = plan(d, now);
+  assert.deepEqual(r2.unsend.map((u) => [u.id, u.patch.msgStatus]), [["m1", "CANCELLED"]]);
+  assert.equal(r2.send[0].variables["시간"], "15:30");
+  // 이미 보낸 건은 건드리지 않는다
+  d.messages[0].msgStatus = "SENT";
+  assert.equal(plan(d, now).unsend.length, 0);
 });

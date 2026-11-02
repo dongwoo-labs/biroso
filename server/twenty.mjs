@@ -127,10 +127,24 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     // 연락 여정(server/journey.mjs): 판단에 필요한 레코드를 모두 읽는다(한의원 한 곳 규모, 관계는 id만)
     async journeyData() {
       const all = (plural) => listAll(plural, "", "&depth=0");
-      const [rules, tasks, prescriptions, appointments, people, packages] = await Promise.all([
+      const [rules, tasks, prescriptions, appointments, people, packages, messages] = await Promise.all([
         all("contactRules"), all("contactTasks"), all("prescriptions"), all("appointments"), all("people"), all("patientPackages"),
+        // 여정이 만든 발송(중복 방지 키가 있는 것)만
+        listAll("messages", "dedupeKey[is]:NOT_NULL", "&depth=0"),
       ]);
-      return { rules, tasks, prescriptions, appointments, people, packages };
+      return { rules, tasks, prescriptions, appointments, people, packages, messages };
+    },
+    async createMessage(row) {
+      try {
+        await call("POST", "/messages", row);
+        return true;
+      } catch (e) {
+        if (isDuplicate(e)) return false;
+        throw e;
+      }
+    },
+    async updateMessage(id, patch) {
+      await call("PATCH", `/messages/${id}`, patch);
     },
     // 같은 dedupeKey가 이미 있으면(다른 실행이 먼저 만듦) 만들지 않고 false
     async createContactTask(row) {
@@ -164,6 +178,8 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
       const p = (await call("GET", `/people/${personId}?depth=1`)).data.person;
       if (!isOrphan(p)) return false;
       for (const c of p.consentRecords ?? []) await call("DELETE", `/consentRecords/${c.id}?soft_delete=false`);
+      // 발송 내역은 파기를 막지 않고 함께 지운다
+      for (const m of p.messages ?? []) await call("DELETE", `/messages/${m.id}?soft_delete=false`);
       for (;;) {
         const tl = await call("GET", `/timelineActivities${q(`targetPersonId[eq]:"${personId}"`, "&limit=60")}`);
         if (!tl.data.timelineActivities.length) break;
