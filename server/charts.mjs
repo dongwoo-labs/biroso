@@ -17,7 +17,7 @@ import { dirname } from "node:path";
 // 서명이 덮는 칸. 순서와 이름을 바꾸면 예전 해시와 맞지 않으니 더하기만 한다.
 export const CHART_FIELDS = [
   "customerId", "appointmentId", "doctorId", "visitAt",
-  "chiefComplaint", "history", "findings", "diagnosis", "treatment", "prescriptionNote", "plan",
+  "chiefComplaint", "history", "findings", "diagnosis", "treatment", "prescriptionNote", "carePlan",
   "chainId", "version", "supersedes", "amendReason", "signedAt",
 ];
 const TIMES = new Set(["visitAt", "signedAt"]);

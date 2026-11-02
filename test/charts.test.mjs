@@ -8,14 +8,14 @@ import { canonical, contentHash, createLedger, findTampered, openEntry, parseKey
 const key = parseKey("11".repeat(32));
 const rec = (id, x = {}) => ({
   id, recordStatus: "SIGNED", customerId: "p1", appointmentId: "a1", doctorId: "m1", visitAt: "2026-11-03T05:00:00.000Z",
-  chiefComplaint: "요통 3일", history: "", findings: "맥 현", diagnosis: "요추 염좌", treatment: "침 10혈", prescriptionNote: null, plan: "3일 뒤 재진",
+  chiefComplaint: "요통 3일", history: "", findings: "맥 현", diagnosis: "요추 염좌", treatment: "침 10혈", prescriptionNote: null, carePlan: "3일 뒤 재진",
   chainId: id, version: 1, supersedes: null, amendReason: null, signedAt: "2026-11-03T05:20:00.000Z", ...x,
 });
 
 test("해시 규칙: console과 같은 예시 값, 빈 값·일시 표기 차이는 같게 본다", () => {
   const r = rec("r1");
   // console(src/industries/clinic-chart.ts) 테스트와 같은 값
-  assert.equal(contentHash(r), "8bfc92bfd93b798527d14452deaed25ba98bdb22bac3bd381c2e7f9433f26522");
+  assert.equal(contentHash(r), "4866eced104c1ea845fbd89cf20547a4b49a0df04e74284d381bfdb7cd049c8f");
   assert.equal(contentHash({ ...r, visitAt: "2026-11-03T05:00:00Z", history: null, prescriptionNote: "" }), contentHash(r));
   assert.notEqual(contentHash({ ...r, diagnosis: "요추 염좌 " }), contentHash(r));
   assert.ok(canonical(r).startsWith('[["customerId","p1"]'));
@@ -61,7 +61,7 @@ test("runSeal·runVerify: 파일 장부에 쓰고 다시 읽어 검사", async (
   assert.deepEqual(await runSeal({ twenty, ledger, key }), { sealed: 2, problems: [] });
   assert.deepEqual(patched, [["r1", 1], ["r2", 2]]);
   assert.deepEqual(await runSeal({ twenty, ledger, key }), { sealed: 0, problems: [] });
-  records = [rec("r1"), rec("r2", { plan: "몰래 고침" })];
+  records = [rec("r1"), rec("r2", { carePlan: "몰래 고침" })];
   const v = await runVerify({ twenty, ledger });
   assert.equal(v.chain.ok, true);
   assert.deepEqual(v.tampered.map((t) => t.recordId), ["r2"]);
