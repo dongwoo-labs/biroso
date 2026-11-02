@@ -71,6 +71,11 @@ DISEASES = opts(("NONE", "해당 없음"), ("HEART", "심장질환"), ("DIABETES
 MEDS = opts(("NONE", "해당 없음"), ("ANTIDEPRESSANT", "우울증약"), ("ASTHMA", "천식약"), ("HYPERTENSION", "고혈압약"), ("THYROID", "갑상선약"),
             ("DIABETES", "당뇨약"), ("OTHER", "기타(두통약 등)"))
 
+# 예약 상태는 원무 흐름까지 이어진다. 값은 crm console(src/industries/clinic.ts)과 같아야 한다.
+APPT_STATUS = opts(("REQUESTED", "예약 신청"), ("CONFIRMED", "확정"), ("ARRIVED", "도착·대기"), ("IN_ROOM", "진료 중"),
+                   ("TREATED", "수납 대기"), ("DONE", "완료"), ("NO_SHOW", "노쇼"), ("CANCELLED", "취소"))
+APPT_SOURCES = opts(("HOMEPAGE", "홈페이지"), ("PHONE", "전화"), ("NAVER", "네이버 예약"), ("WALKIN", "워크인"), ("STAFF", "직원 등록"))
+
 # (nameSingular, namePlural, 단수 라벨, 복수 라벨, 아이콘, [필드...])
 # 필드: (name, type, label, extra)  extra에 options/defaultValue/relation 대상
 OBJECTS = [
@@ -133,6 +138,8 @@ OBJECTS = [
         ("cancelledAt", "DATE_TIME", "취소 일시", {}),
     ]),
     # 진료 예약(전화 진료·내원 진료). 이름은 예약 요약(예: "10/30 14:00 전화 · 다이어트 처방 상담").
+    # 예약 한 건 = 내원 한 번. 원무(도착→진료→치료 끝→수납)도 이 레코드의 상태로 진행한다(업스트림 원무 보드 대체).
+    # 홈페이지 예약·전화 예약·워크인 모두 여기에 쌓이고, 취소가 아닌 예약은 홈페이지 예약 칸을 막는다.
     ("appointment", "appointments", "진료 예약", "진료 예약", "IconCalendarEvent", [
         ("customer", "RELATION", "환자", {"target": "person", "inverse": "appointments", "inverseLabel": "진료 예약"}),
         ("product", "RELATION", "진료 상품", {"target": "product", "inverse": "appointments", "inverseLabel": "진료 예약"}),
@@ -140,7 +147,26 @@ OBJECTS = [
         ("scheduledAt", "DATE_TIME", "예약 일시", {}),
         # 예약 자리 키(<예약 시각>#<번호>). 고유값이라 같은 자리를 동시에 두 번 잡지 못한다. 홈페이지가 채우니 직원은 비워 둔다.
         ("slotKey", "TEXT", "예약 자리(자동)", {"isUnique": True}),
-        ("appointmentStatus", "SELECT", "예약 상태", {"options": opts(("REQUESTED", "예약 신청"), ("CONFIRMED", "확정"), ("DONE", "진료 완료"), ("NO_SHOW", "노쇼"), ("CANCELLED", "취소")), "defaultValue": "'REQUESTED'"}),
+        ("appointmentStatus", "SELECT", "예약 상태", {"options": APPT_STATUS, "defaultValue": "'REQUESTED'"}),
+        ("source", "SELECT", "예약 경로", {"options": APPT_SOURCES, "defaultValue": "'HOMEPAGE'"}),
+        ("visitType", "SELECT", "초진·재진", {"options": opts(("NEW", "초진"), ("RETURN", "재진"))}),
+        ("doctor", "RELATION", "진료의", {"target": "workspaceMember", "inverse": "doctorAppointments", "inverseLabel": "진료 예약"}),
+        ("room", "TEXT", "치료실", {}),
+        ("arrivedAt", "DATE_TIME", "도착", {}),
+        ("roomAt", "DATE_TIME", "진료실 들어감", {}),
+        ("treatedAt", "DATE_TIME", "치료 끝", {}),
+        ("paidAt", "DATE_TIME", "수납", {}),
+        ("cancelReason", "TEXT", "취소·노쇼 사유", {}),
+        ("memo", "TEXT", "예약 메모", {}),
+    ]),
+    # 수납(내원 진료비). 온라인 주문 결제(clinicOrder)와 따로 둔다. 금액은 원장이 정한 비급여·본인부담 합계.
+    ("payment", "payments", "수납", "수납", "IconCash", [
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "payments", "inverseLabel": "수납"}),
+        ("appointment", "RELATION", "내원", {"target": "appointment", "inverse": "payments", "inverseLabel": "수납"}),
+        ("amount", "CURRENCY", "금액", {}),
+        ("payMethod", "SELECT", "결제 수단", {"options": opts(("CARD", "카드"), ("CASH", "현금"), ("TRANSFER", "계좌이체"), ("LOCAL", "지역화폐"), ("ETC", "기타"))}),
+        ("paidAt", "DATE_TIME", "수납 일시", {}),
+        ("memo", "TEXT", "메모", {}),
     ]),
     # 문진(건강정보 = 개인정보보호법 제23조 민감정보). 고객·주문과 따로 둬서 역할로 열람을 막을 수 있게 한다.
     ("intake", "intakes", "문진", "문진", "IconStethoscope", [
@@ -227,6 +253,20 @@ PERSON_FIELDS = [
     ("referrer", "TEXT", "이전 사이트", {}),
     ("searchKeyword", "TEXT", "검색어", {}),
     ("consentMarketing", "BOOLEAN", "광고 수신 동의", {"defaultValue": False}),
+    # 환자 정보(업스트림 환자 목록에서 가져옴, import_upstream_patients.py). 차트번호가 환자를 가리키는 키다.
+    # 전화번호는 가족이 같이 쓰는 경우가 있어 환자를 합치는 키로 쓰지 않는다.
+    ("chartNo", "TEXT", "차트번호", {}),
+    ("birthDate", "DATE", "생년월일", {}),
+    ("sex", "SELECT", "성별", {"options": opts(("F", "여성"), ("M", "남성"))}),
+    ("address", "ADDRESS", "주소", {}),
+    ("firstVisitAt", "DATE", "첫 내원", {}),
+    ("lastVisitAt", "DATE", "마지막 내원", {}),
+    ("referredBy", "TEXT", "소개자", {}),
+    ("familyNote", "TEXT", "가족", {}),
+    # 업스트림 '특이사항'. 건강정보가 섞일 수 있어 console에는 보이지 않는다(Twenty에서 역할 권한으로 연다).
+    ("upstreamNote", "TEXT", "특이사항(업스트림)", {}),
+    # 예약 안내·공지 같은 정보성 알림. 광고(consentMarketing)와 따로 받는다.
+    ("consentNotice", "BOOLEAN", "알림·공지 수신", {"defaultValue": True}),
 ]
 
 
@@ -285,9 +325,12 @@ def migrate_orders(fields_by_obj):
     옛 '한의원 방문 수령'(pickup) 필드는 수령 방식으로 옮긴 뒤 지운다. 여러 번 실행해도 된다."""
     names = {f["name"]: f for f in fields_by_obj.get("clinicOrder", [])}
     legacy = names.get("pickup")
-    # 새 필드는 기본값(진료 대기·택배)으로 채워지므로, 이미 끝난 주문과 방문 수령 주문만 고친다
-    done = 'and(shippingStatus[eq]:"WAITING",orderStatus[in]:["SHIPPED","DONE","CANCELLED","REFUNDED"])'
-    for o in list_all("clinicOrders", done):
+    # 새 필드는 기본값(진료 대기·택배)으로 채워지므로, 이미 끝난 주문과 방문 수령 주문만 고친다.
+    # 선택지에 없는 값(옮긴 뒤 지운 SHIPPED)으로 거르면 Twenty가 400을 내므로 지금 있는 값만 쓴다.
+    have = {o["value"] for o in (names.get("orderStatus", {}).get("options") or [])}
+    states = [v for v in ("SHIPPED", "DONE", "CANCELLED", "REFUNDED") if v in have]
+    done = 'and(shippingStatus[eq]:"WAITING",orderStatus[in]:[' + ",".join(f'"{v}"' for v in states) + '])'
+    for o in (list_all("clinicOrders", done) if states else []):
         pickup = bool(o.get("pickup"))
         status = o.get("orderStatus")
         ship = {"SHIPPED": "SHIPPED", "DONE": "PICKED_UP" if pickup else "DELIVERED", "CANCELLED": "CANCELLED", "REFUNDED": "CANCELLED"}.get(status, "WAITING")

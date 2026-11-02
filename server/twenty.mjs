@@ -10,6 +10,13 @@ export class TwentyError extends Error {
 // 고유값 필드(isUnique)에 같은 값이 이미 있어 거절된 경우
 export const isDuplicate = (e) => e instanceof TwentyError && [400, 409].includes(e.status) && /duplicate|unique/i.test(e.message);
 
+// 파기해도 되는 고객인가: 주문·예약·문진·상담·수납이 하나도 없고, 차트번호가 없는(한의원 환자가 아닌) 사람.
+// 차트번호가 있는 환자는 진료기록 보존 대상이라 온라인 주문 파기와 함께 지우지 않는다.
+export function isOrphan(p) {
+  if (!p || p.chartNo) return false;
+  return !["clinicOrders", "appointments", "intakes", "consultRequests", "payments"].some((k) => (p[k]?.length ?? 0) > 0);
+}
+
 export class SlotTaken extends Error {
   constructor(slotKey) { super(`예약 칸이 이미 찼습니다: ${slotKey}`); this.slotKey = slotKey; }
 }
@@ -133,7 +140,7 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     // 주문·예약·상담이 하나도 없는 고객(결제하지 않고 떠난 사람, 보관 기간이 지난 상담 신청자)은 동의기록과 함께 지운다
     async deletePersonIfOrphan(personId) {
       const p = (await call("GET", `/people/${personId}?depth=1`)).data.person;
-      if (!p || ["clinicOrders", "appointments", "intakes", "consultRequests"].some((k) => (p[k]?.length ?? 0) > 0)) return false;
+      if (!isOrphan(p)) return false;
       for (const c of p.consentRecords ?? []) await call("DELETE", `/consentRecords/${c.id}?soft_delete=false`);
       for (;;) {
         const tl = await call("GET", `/timelineActivities${q(`targetPersonId[eq]:"${personId}"`, "&limit=60")}`);
