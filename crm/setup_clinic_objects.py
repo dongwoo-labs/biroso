@@ -251,7 +251,7 @@ OBJECTS = [
     # activeFrom 이후에 생긴 사건만 대상('지금부터 들어오는 건만'). 값은 server/journey.mjs와 같아야 한다.
     ("contactRule", "contactRules", "연락 단계", "연락 여정", "IconRoute", [
         ("journey", "TEXT", "여정", {}),
-        ("event", "SELECT", "기준 사건", {"options": opts(
+        ("triggerEvent", "SELECT", "기준 사건", {"options": opts(
             ("RX_START", "복약 시작"), ("RX_MID", "복약 중간"), ("RX_END", "복약 끝"), ("VISIT_DONE", "내원 완료"),
             ("FIRST_VISIT", "첫 내원"), ("NO_SHOW", "노쇼"), ("CANCELLED", "예약 취소"), ("NO_RETURN", "마지막 내원"),
             ("PACKAGE_END", "패키지 만료"), ("APPT", "예약일"))}),
@@ -405,7 +405,7 @@ PERSON_FIELDS = [
     ("chartNo", "TEXT", "차트번호", {}),
     ("birthDate", "DATE", "생년월일", {}),
     ("sex", "SELECT", "성별", {"options": opts(("F", "여성"), ("M", "남성"))}),
-    ("address", "ADDRESS", "주소", {}),
+    ("homeAddress", "ADDRESS", "주소", {}),  # address는 Twenty 예약어
     ("firstVisitAt", "DATE", "첫 내원", {}),
     ("lastVisitAt", "DATE", "마지막 내원", {}),
     ("referredBy", "TEXT", "소개자", {}),
@@ -447,13 +447,13 @@ def seed_contact_rules():
         if name not in templates:
             templates[name] = rest("POST", "/messageTemplates", {"name": name, "channel": channel, "isAd": ad, "body": body, "active": False, "sortOrder": i})["data"]["createMessageTemplate"]["id"]
             added_t += 1
-    have = {(r["journey"], r["event"]) for r in rest("GET", "/contactRules?limit=200")["data"]["contactRules"]}
+    have = {(r["journey"], r["triggerEvent"]) for r in rest("GET", "/contactRules?limit=200")["data"]["contactRules"]}
     added = 0
     for i, (journey, event, days, time, channel, ad, script) in enumerate(DEFAULT_RULES):
         if (journey, event) in have:
             continue
         tpl = templates.get(journey) if channel == "MESSAGE" else None
-        rest("POST", "/contactRules", {"name": f"{journey} · {script.split('.')[0][:20]}", "journey": journey, "event": event, "offsetDays": days,
+        rest("POST", "/contactRules", {"name": f"{journey} · {script.split('.')[0][:20]}", "journey": journey, "triggerEvent": event, "offsetDays": days,
                                         "timeOfDay": time, "channel": channel, "isAd": ad, "script": script, "active": False, "sortOrder": i,
                                         **({"messageTemplateId": tpl} if tpl else {})})
         added += 1

@@ -16,7 +16,7 @@ test("복약 날짜: 수령일 기준, 없으면 처방일", () => {
 
 test("복약 3일차 전화: 오늘 예정이면 만들고, 이미 있으면 다시 만들지 않는다", () => {
   const d = base();
-  d.rules = [rule("r1", { event: "RX_START", offsetDays: 3 })];
+  d.rules = [rule("r1", { triggerEvent: "RX_START", offsetDays: 3 })];
   d.prescriptions = [
     { id: "x1", customerId: "p1", receivedOn: "2026-11-02", days: 30, createdAt: "2026-11-01T01:00:00Z" },
     { id: "x2", customerId: "p2", receivedOn: "2026-11-04", days: 30, createdAt: "2026-11-01T01:00:00Z" }, // 내일 예정
@@ -32,7 +32,7 @@ test("복약 3일차 전화: 오늘 예정이면 만들고, 이미 있으면 다
 
 test("켜기 전에 생긴 사건은 대상이 아니고, 3일 넘게 지난 예정은 만들지 않는다", () => {
   const d = base();
-  d.rules = [rule("r1", { event: "RX_END", offsetDays: -3, activeFrom: "2026-11-03T00:00:00Z" })];
+  d.rules = [rule("r1", { triggerEvent: "RX_END", offsetDays: -3, activeFrom: "2026-11-03T00:00:00Z" })];
   d.prescriptions = [
     { id: "old", customerId: "p1", receivedOn: "2026-10-20", days: 19, createdAt: "2026-10-20T01:00:00Z" },
     { id: "new", customerId: "p2", receivedOn: "2026-11-04", days: 4, createdAt: "2026-11-04T01:00:00Z" }, // 끝 11/7 - 3 = 11/4
@@ -43,7 +43,7 @@ test("켜기 전에 생긴 사건은 대상이 아니고, 3일 넘게 지난 예
 
 test("노쇼 다음날 전화는 다시 예약하면 자동 취소", () => {
   const d = base();
-  d.rules = [rule("r2", { journey: "노쇼·취소", event: "NO_SHOW", offsetDays: 1 })];
+  d.rules = [rule("r2", { journey: "노쇼·취소", triggerEvent: "NO_SHOW", offsetDays: 1 })];
   d.appointments = [{ id: "a1", customerId: "p1", appointmentStatus: "NO_SHOW", scheduledAt: "2026-11-04T01:00:00Z" }];
   assert.equal(plan(d, now).create[0]?.dedupeKey, "r2:a1");
   d.tasks = [{ id: "t1", dedupeKey: "r2:a1", taskStatus: "TODO", contactRuleId: "r2", customerId: "p1" }];
@@ -66,7 +66,7 @@ test("광고·정보성 동의와 연락 그만하기 범위", () => {
   assert.equal(allowed(call, person("a", { stoppedJourneys: "노쇼·취소, 복약 관리" })), false);
   // 수신 거부하면 아직 안 한 연락은 취소
   const d = base();
-  d.rules = [rule("r3", { journey: "재내원", event: "NO_RETURN", offsetDays: 90, isAd: true, channel: "MESSAGE" })];
+  d.rules = [rule("r3", { journey: "재내원", triggerEvent: "NO_RETURN", offsetDays: 90, isAd: true, channel: "MESSAGE" })];
   d.people = [person("p1", { lastVisitAt: "2026-08-07", consentMarketing: true }), person("p2", { lastVisitAt: "2026-06-01", consentMarketing: true })];
   assert.deepEqual(plan(d, now).create.map((c) => c.customerId), ["p1"]); // p2는 켜기 전에 90일을 넘김
   d.tasks = [{ id: "t1", dedupeKey: "r3:p1@2026-08-07", taskStatus: "TODO", contactRuleId: "r3", customerId: "p1" }];
@@ -76,7 +76,7 @@ test("광고·정보성 동의와 연락 그만하기 범위", () => {
 
 test("패키지 만료 2주 전: 연장하면 예전 연락은 취소되고 새 만료일로 다시 잡힌다", () => {
   const d = base();
-  d.rules = [rule("r4", { journey: "패키지", event: "PACKAGE_END", offsetDays: -14 })];
+  d.rules = [rule("r4", { journey: "패키지", triggerEvent: "PACKAGE_END", offsetDays: -14 })];
   d.packages = [{ id: "k1", customerId: "p1", packageStatus: "ACTIVE", endsOn: "2026-11-19", createdAt: "2026-10-02T00:00:00Z" }];
   assert.equal(plan(d, now).create[0].dedupeKey, "r4:k1@2026-11-19");
   d.tasks = [{ id: "t1", dedupeKey: "r4:k1@2026-11-19", taskStatus: "TODO", contactRuleId: "r4", customerId: "p1" }];
@@ -88,7 +88,7 @@ test("패키지 만료 2주 전: 연장하면 예전 연락은 취소되고 새 
 
 test("runJourneys: 중복으로 거절된 건은 세지 않는다", async () => {
   const d = base();
-  d.rules = [rule("r1", { event: "RX_START", offsetDays: 3 })];
+  d.rules = [rule("r1", { triggerEvent: "RX_START", offsetDays: 3 })];
   d.prescriptions = [{ id: "x1", customerId: "p1", receivedOn: "2026-11-02", days: 30, createdAt: "2026-11-01T01:00:00Z" }];
   const twenty = { journeyData: async () => d, createContactTask: async () => false, updateContactTask: async () => {} };
   assert.deepEqual(await runJourneys({ twenty }, now), { created: 0, cancelled: 0, queued: 0, unqueued: 0 });
@@ -96,7 +96,7 @@ test("runJourneys: 중복으로 거절된 건은 세지 않는다", async () => 
 
 test("예약 알림: 자동 발송 문구가 있으면 연락 업무 대신 발송을 만들고, 지난 날 것은 따라잡지 않는다", () => {
   const d = base();
-  d.rules = [rule("r5", { journey: "예약 알림", event: "APPT", offsetDays: -1, timeOfDay: "18:00", channel: "MESSAGE", messageTemplateId: "tpl" })];
+  d.rules = [rule("r5", { journey: "예약 알림", triggerEvent: "APPT", offsetDays: -1, timeOfDay: "18:00", channel: "MESSAGE", messageTemplateId: "tpl" })];
   d.appointments = [
     { id: "a1", customerId: "p1", appointmentStatus: "CONFIRMED", scheduledAt: "2026-11-06T05:30:00Z", createdAt: "2026-11-01T00:00:00Z" }, // 내일 14:30
     { id: "a2", customerId: "p2", appointmentStatus: "CONFIRMED", scheduledAt: "2026-11-05T05:30:00Z", createdAt: "2026-11-01T00:00:00Z" }, // 오늘: 어제 보냈어야 함

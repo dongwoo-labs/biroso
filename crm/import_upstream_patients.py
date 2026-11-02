@@ -149,7 +149,7 @@ def to_person(row):
         p["phones"] = {"primaryPhoneNumber": main, "primaryPhoneCountryCode": "KR", "primaryPhoneCallingCode": "+82",
                        "additionalPhones": [{"number": t, "countryCode": "KR", "callingCode": "+82"}] if (m and t and t != m) else []}
     if row.get("주소"):
-        p["address"] = {"addressStreet1": row["주소"], "addressCountry": "South Korea"}
+        p["homeAddress"] = {"addressStreet1": row["주소"], "addressCountry": "South Korea"}
     for col, key in (("소개자", "referredBy"), ("가족", "familyNote"), ("특이사항", "upstreamNote")):
         if row.get(col):
             p[key] = row[col]
