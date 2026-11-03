@@ -50,6 +50,8 @@ create table if not exists chart_audit.signature (
   logged_at timestamptz not null default clock_timestamp()
 );
 create unique index if not exists signature_record on chart_audit.signature(record_id);
+-- 같은 묶음의 같은 판은 하나만(동시에 두 수정본을 서명해도 하나만 남는다)
+create unique index if not exists signature_chain_version on chart_audit.signature(chain_id, version);
 
 -- 변경 기록(내용 없이 바뀐 칸 이름만). 거부된 시도는 트랜잭션과 함께 사라지므로 DB 로그(pgaudit)에 남는다.
 create table if not exists chart_audit.change_log (
@@ -154,7 +156,8 @@ begin
     end if;
   end if;
 
-  signing := new."recordStatus"::text = 'SIGNED' and (tg_op = 'INSERT' or old."recordStatus"::text <> 'SIGNED');
+  -- NULL 상태에서 SIGNED로 바뀌는 경우도 서명으로 본다(NULL 비교로 검사를 건너뛰지 않게)
+  signing := coalesce(new."recordStatus"::text = 'SIGNED', false) and (tg_op = 'INSERT' or old."recordStatus"::text is distinct from 'SIGNED');
   if tg_op = 'INSERT' and (new."sealedAt" is not null or new."sealNo" is not null) then
     raise exception '봉인 정보는 봉인 작업만 채웁니다' using errcode = '42501';
   end if;
@@ -186,7 +189,7 @@ begin
     if new."supersedes" is not null and new."supersedes" <> '' then
       execute format('select id, "recordStatus"::text as st, "chainId", "version" from %I.%I where id::text = $1', tg_table_schema, tg_table_name)
         into prev using new."supersedes";
-      if prev is null or prev.st <> 'SIGNED' or prev."chainId" <> new."chainId" or prev."version" + 1 <> new."version" then
+      if prev is null or prev.st is distinct from 'SIGNED' or prev."chainId" is distinct from new."chainId" or prev."version" + 1 is distinct from new."version" then
         raise exception '앞 판과 이어지지 않는 새 판입니다' using errcode = '23514';
       end if;
       if coalesce(btrim(new."amendReason"), '') = '' then
