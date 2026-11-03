@@ -46,6 +46,10 @@ def opts(*pairs):
     return [{"value": v, "label": l, "color": colors[i % len(colors)], "position": i} for i, (v, l) in enumerate(pairs)]
 
 
+# 진료 항목(접수 창·베드 보드). 업스트림 접수 창과 같은 목록
+TREATMENT_OPTIONS = opts(("ACUPUNCTURE", "침"), ("PHARMACOPUNCTURE", "약침"), ("CHUNA", "추나"), ("HERBAL", "한약"), ("CONSULT", "상담"), ("DIET", "다이어트"), ("REMOTE", "비대면"), ("ETC", "기타"))
+
+
 # 값은 홈페이지 코드(src/lib/content.ts, server/*.mjs)와 같아야 한다
 KINDS = opts(("PAYMENT", "원내 상품(결제)"), ("RESERVATION", "진료 예약"))
 CATEGORIES = opts(("DIET", "비로소 다이어트"), ("GONGJINDAN", "공진단 수壽"), ("GYEONGOKGO", "경옥고 수壽"), ("UHWANG", "우황청심원 수壽"),
@@ -157,11 +161,15 @@ OBJECTS = [
         ("visitType", "SELECT", "초진·재진", {"options": opts(("NEW", "초진"), ("RETURN", "재진"))}),
         # 접수 창에서 고른다(업스트림 접수 창의 보험 구분·진료 항목). 원무 카드와 진료실 머리에 보인다.
         ("insuranceType", "SELECT", "보험 구분", {"options": opts(("NHI", "건보"), ("AUTO", "자보"), ("GENERAL", "일반"), ("INDUSTRIAL", "산재"))}),
-        ("treatments", "MULTI_SELECT", "진료 항목", {"options": opts(("ACUPUNCTURE", "침"), ("PHARMACOPUNCTURE", "약침"), ("CHUNA", "추나"), ("HERBAL", "한약"), ("CONSULT", "상담"), ("DIET", "다이어트"), ("REMOTE", "비대면"), ("ETC", "기타"))}),
+        ("treatments", "MULTI_SELECT", "진료 항목", {"options": TREATMENT_OPTIONS}),
         # 이 내원에서 못 받고 남긴 금액. 다음 수납 창이 '지난 미수 같이 받기'로 불러오고, 받으면 0으로 돌린다.
         ("unpaidAmount", "CURRENCY", "미수", {}),
         ("doctor", "RELATION", "진료의", {"target": "workspaceMember", "inverse": "doctorAppointments", "inverseLabel": "진료 예약"}),
-        ("room", "TEXT", "치료실", {}),
+        # 베드 보드(치료실): 누운 베드 이름, 베드에 누운 시각(타이머 시작), 타이머 분(비우면 화면 기본값), 끝낸 치료 항목
+        ("room", "TEXT", "베드", {}),
+        ("bedAt", "DATE_TIME", "베드 시작", {}),
+        ("bedMinutes", "NUMBER", "베드 타이머(분)", {}),
+        ("treatmentsDone", "MULTI_SELECT", "끝낸 치료", {"options": TREATMENT_OPTIONS}),
         ("arrivedAt", "DATE_TIME", "도착", {}),
         ("roomAt", "DATE_TIME", "진료실 들어감", {}),
         ("treatedAt", "DATE_TIME", "치료 끝", {}),
