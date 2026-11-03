@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { alertConfig, createAlert } from "../server/alert.mjs";
 import { canonical, contentHash, createLedger, findTampered, openEntry, parseKey, planSeal, runSeal, runVerify, verifyChain } from "../server/charts.mjs";
 
 const key = parseKey("11".repeat(32));
@@ -106,4 +107,20 @@ test("봉인 번호 쓰기 실패는 다음에 다시 적고, 장부와 다른 �
   assert.deepEqual([odd.patches.length, odd.lines[0].kind, odd.problems[0].why], [0, "suspect", "장부에 없는 봉인 번호가 적혀 있어 봉인하지 않았어요"]);
   const t = findTampered([rec("r1", { sealNo: 5 }), rec("r2", { sealNo: 2 }), rec("r9", { sealNo: 7 })], first.lines);
   assert.deepEqual(t.map((x) => [x.recordId, x.why]), [["r1", "봉인 번호가 장부와 달라요"], ["r9", "장부에 없는 봉인 번호예요"]]);
+});
+
+test("메일 알림: 이상 알림과 매일 기준값을 받는 주소로 보낸다", async () => {
+  const cfg = alertConfig({ CHART_ALERT_SMTP_URL: "smtps://u:p@smtp.example.com:465", CHART_ALERT_MAIL_FROM: "a@example.com", CHART_ALERT_MAIL_TO: "x@example.com, y@example.com" });
+  const mails = [];
+  const alert = createAlert(cfg, { sendMail: async (m) => mails.push(m) }, async () => assert.fail("fetch 안 함"));
+  assert.deepEqual(await alert("[진료기록 이상] 1건"), ["mail"]);
+  assert.deepEqual(await alert("이상 없음 abcd", { daily: true }), ["mail"]);
+  assert.deepEqual(mails.map((m) => [m.to, m.subject, m.text]), [
+    ["x@example.com, y@example.com", "비로소한의원 진료기록 이상 알림", "비로소한의원 [진료기록 이상] 1건"],
+    ["x@example.com, y@example.com", "비로소한의원 진료기록 매일 점검", "비로소한의원 이상 없음 abcd"],
+  ]);
+  const logs = [];
+  const failing = createAlert(cfg, { sendMail: async () => { throw new Error("535 auth"); }, log: (l) => logs.push(l) });
+  assert.deepEqual(await failing("x"), []);
+  assert.equal(logs[0].event, "chart_alert_failed");
 });

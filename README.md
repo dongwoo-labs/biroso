@@ -158,7 +158,7 @@ API 키는 Twenty 설정 > API에서 '봉인'(→ `.env`의 `CHART_TWENTY_API_KE
 
 - 10분마다 `GET /v1/charts/seal`이 서명한 기록을 암호화해 장부(`charts` 볼륨 `ledger.jsonl`, 해시 체인)에 더하고 봉인 번호를 채운다. 서명 뒤 내용이 바뀐 기록이나 장부에 없는 봉인 번호는 **봉인하지 않고** 증거(`kind: suspect`)로 남기고 알린다.
 - 매일 05:30 `GET /v1/charts/verify`가 장부 체인·봉인한 기록·서명 1시간이 지나도 봉인 안 된 기록을 검사해 `checks.jsonl`에 남긴다. 이상이 있으면 알리고, 없으면 "이상 없음 + 장부 끝 해시 앞 16자"를 원장 휴대폰(`CHART_ANCHOR_SMS_TO`)으로 보낸다. 원장은 이 문자를 지우지 않는다. 관리자가 서버의 장부를 고쳐도 원장이 받은 기준값과 맞지 않아 드러난다.
-- 알림은 솔라피 문자(`CHART_ALERT_*`)와 웹훅. 글에는 환자 이름·진료 내용을 넣지 않는다.
+- 알림은 솔라피 문자(`CHART_ALERT_*`), 웹훅, 메일(`CHART_ALERT_SMTP_URL`·`CHART_ALERT_MAIL_TO`, 매일 기준값도 함께 간다). 글에는 환자 이름·진료 내용을 넣지 않는다.
 - `CHART_LEDGER_KEY`(`openssl rand -hex 32`)는 `.env`와 원장이 가진 비밀번호 관리자에 둔다. 잃으면 장부 사본을 열 수 없다.
 
 ### 이상 대응
