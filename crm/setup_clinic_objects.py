@@ -265,6 +265,14 @@ OBJECTS = [
         ("chartSection", "SELECT", "기록 칸", {"options": opts(("CHIEF_COMPLAINT", "주소"), ("HISTORY", "현병력·과거력"), ("FINDINGS", "진찰 소견"), ("DIAGNOSIS", "진단"), ("TREATMENT", "치료"), ("PRESCRIPTION_NOTE", "처방"), ("CARE_PLAN", "계획·주의"))}),
         ("phraseText", "TEXT", "문구", {}),
     ]),
+    # 직원 채팅(업무 화면 상단 말풍선). room = "all"(전체방) 또는 "dm:<직원 id>:<직원 id>"(1:1, id 정렬).
+    # 보낸 사람은 Twenty createdBy(직원 로그인)로 본다. 환자를 붙이면 customer에 건다(누르면 환자 360).
+    # 1:1도 이 객체를 읽을 수 있는 역할이면 Twenty에서 볼 수 있다(행 단위 권한 없음) — README '직원 채팅'.
+    ("staffMessage", "staffMessages", "직원 채팅", "직원 채팅", "IconMessages", [
+        ("room", "TEXT", "방", {}),
+        ("messageText", "TEXT", "내용", {}),
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "staffMessages", "inverseLabel": "직원 채팅"}),
+    ]),
     # 연락 여정의 단계 하나: 기준 사건 + N일 뒤 시각에 전화·메시지. journey가 같은 단계끼리 한 여정이다.
     # activeFrom 이후에 생긴 사건만 대상('지금부터 들어오는 건만'). 값은 server/journey.mjs와 같아야 한다.
     ("contactRule", "contactRules", "연락 단계", "연락 여정", "IconRoute", [

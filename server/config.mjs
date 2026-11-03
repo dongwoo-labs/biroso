@@ -26,6 +26,8 @@ export function loadConfig(env = process.env) {
     intakeRetentionDays: Number(env.INTAKE_RETENTION_DAYS ?? 365),
     // 빠른 상담 신청(이름·휴대폰) 보관 기간(일). 처리방침(src/data/notice.json의 consult)과 같아야 한다.
     consultRetentionDays: Number(env.QUICK_CONSULT_RETENTION_DAYS ?? 90),
+    // 직원 채팅(업무 화면) 보관 기간(일). 환자 이름이 오가므로 기한을 두고 지운다. 0이면 지우지 않는다.
+    chatRetentionDays: Number(env.CHAT_RETENTION_DAYS ?? 365),
     // 결제하지 않고 떠난 주문(결제 대기)을 지우기까지의 시간
     pendingOrderHours: Number(env.PENDING_ORDER_HOURS ?? 24),
     // 나이스페이 결제창(Server 승인). 샌드박스 키(S1_/S2_로 시작)면 샌드박스 API로 승인한다.
