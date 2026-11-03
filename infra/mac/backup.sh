@@ -70,7 +70,8 @@ archive_dirs=$(envval BACKUP_ARCHIVE_DIRS)
 archive_remote=$(envval BACKUP_ARCHIVE_RCLONE_REMOTE)
 month=$(date +%Y%m)
 if [ -n "$archive_dirs$archive_remote" ] && ! ls "$dir"/chart-archive-"$project-$month"*.tar.age >/dev/null 2>&1; then
-  arch=$(mktemp -d)
+  # 평문 CSV는 $work 아래에 둔다(성공·실패 모두 EXIT에서 지워짐)
+  arch="$work/archive"; mkdir -p "$arch"
   # crm: 진료기록 테이블(모든 판)·서명 증거·변경 기록·진료기록이 있는 환자 인적사항
   if has twenty-db && ws=$(docker compose exec -T twenty-db psql -U twenty -d twenty -Atc "select table_schema from information_schema.tables where table_name='_medicalRecord' limit 1") && [ -n "$ws" ]; then
     q() { docker compose exec -T twenty-db psql -U twenty -d twenty -c "\\copy ($1) to stdout with csv header" >"$arch/$2.csv"; }
@@ -82,11 +83,13 @@ if [ -n "$archive_dirs$archive_remote" ] && ! ls "$dir"/chart-archive-"$project-
   for f in access-logs.tar pg-logs.tar charts.tar; do if [ -f "$work/$f" ]; then cp "$work/$f" "$arch/"; fi; done
   if [ -n "$(ls -A "$arch")" ]; then
     aname="chart-archive-$project-$month-$(date +%d%H%M%S).tar.age"
-    tar -C "$arch" -cf - . | age "${args[@]}" >"$dir/$aname"
-    for t in $(tr ':' ' ' <<<"$archive_dirs"); do mkdir -p "$t" && cp "$dir/$aname" "$t/"; done
-    if [ -n "$archive_remote" ]; then rclone copy "$dir/$aname" "$archive_remote"; fi
+    # 모든 보관 위치에 복사한 뒤에만 완성 이름으로 바꾼다. 중간에 실패하면 다음 실행이 이달 묶음을 다시 만든다
+    part="$work/$aname"
+    tar -C "$arch" -cf - . | age "${args[@]}" >"$part"
+    for t in $(tr ':' ' ' <<<"$archive_dirs"); do mkdir -p "$t"; cp "$part" "$t/"; done
+    if [ -n "$archive_remote" ]; then rclone copyto "$part" "$archive_remote/$aname"; fi
+    mv "$part" "$dir/$aname"
     echo "$(date -u +%FT%TZ) ARCHIVE $aname" >>"$dir/status.log"
   fi
-  rm -rf "$arch"
 fi
 echo "$(date -u +%FT%TZ) OK $name $(wc -c <"$dir/$name" | tr -d ' ')" >>"$dir/status.log"
