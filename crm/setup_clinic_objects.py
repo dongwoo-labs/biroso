@@ -262,7 +262,7 @@ OBJECTS = [
     ]),
     # 상용구: 진료실 '오늘 기록' 칸마다 자주 쓰는 문구. 칸(chartSection)을 비우면 모든 칸에서 보인다. 환자 정보는 넣지 않는다.
     ("chartPhrase", "chartPhrases", "상용구", "상용구", "IconTextPlus", [
-        ("chartSection", "SELECT", "기록 칸", {"options": opts(("CHIEF_COMPLAINT", "주소"), ("HISTORY", "현병력·과거력"), ("FINDINGS", "진찰 소견"), ("DIAGNOSIS", "진단"), ("TREATMENT", "치료"), ("PRESCRIPTION_NOTE", "처방"), ("CARE_PLAN", "계획·주의"))}),
+        ("chartSection", "SELECT", "기록 칸", {"options": opts(("CHIEF_COMPLAINT", "주소"), ("HISTORY", "현병력·과거력"), ("FINDINGS", "진찰 소견"), ("DIAGNOSIS", "진단"), ("TREATMENT", "치료"), ("PRESCRIPTION_NOTE", "처방"), ("CARE_PLAN", "계획·주의"), ("CHAT", "직원 채팅"))}),
         ("phraseText", "TEXT", "문구", {}),
     ]),
     # 직원 채팅(업무 화면 상단 말풍선). room = "all"(전체방) 또는 "dm:<직원 id>:<직원 id>"(1:1, id 정렬).
@@ -272,6 +272,16 @@ OBJECTS = [
         ("room", "TEXT", "방", {}),
         ("messageText", "TEXT", "내용", {}),
         ("customer", "RELATION", "환자", {"target": "person", "inverse": "staffMessages", "inverseLabel": "직원 채팅"}),
+        # 고정한 메시지는 방의 '고정' 탭에 남는다(누구나 고정·해제)
+        ("pinned", "BOOLEAN", "고정", {"defaultValue": False}),
+    ]),
+    # 현금 시재(업무 화면 원무 › 수납현황). 고치지 않고 줄을 더한다: 시작 금액·현금 지출·마감 실사.
+    # 지금 돈통 = 그날 마지막 시작 금액 + 현금 수납 − 현금 지출, 마감 실사와의 차이를 화면이 보인다. 환자 정보는 넣지 않는다.
+    ("cashEntry", "cashEntries", "현금 시재", "현금 시재", "IconCoin", [
+        ("entryKind", "SELECT", "구분", {"options": opts(("OPENING", "시작 금액"), ("EXPENSE", "현금 지출"), ("COUNT", "마감 실사"))}),
+        ("entryOn", "DATE", "날짜", {}),
+        ("amount", "CURRENCY", "금액", {}),
+        ("memo", "TEXT", "사유·메모", {}),
     ]),
     # 연락 여정의 단계 하나: 기준 사건 + N일 뒤 시각에 전화·메시지. journey가 같은 단계끼리 한 여정이다.
     # activeFrom 이후에 생긴 사건만 대상('지금부터 들어오는 건만'). 값은 server/journey.mjs와 같아야 한다.
