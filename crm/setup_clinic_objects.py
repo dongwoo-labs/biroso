@@ -155,6 +155,11 @@ OBJECTS = [
         ("appointmentStatus", "SELECT", "예약 상태", {"options": APPT_STATUS, "defaultValue": "'REQUESTED'"}),
         ("source", "SELECT", "예약 경로", {"options": APPT_SOURCES, "defaultValue": "'HOMEPAGE'"}),
         ("visitType", "SELECT", "초진·재진", {"options": opts(("NEW", "초진"), ("RETURN", "재진"))}),
+        # 접수 창에서 고른다(업스트림 접수 창의 보험 구분·진료 항목). 원무 카드와 진료실 머리에 보인다.
+        ("insuranceType", "SELECT", "보험 구분", {"options": opts(("NHI", "건보"), ("AUTO", "자보"), ("GENERAL", "일반"), ("INDUSTRIAL", "산재"))}),
+        ("treatments", "MULTI_SELECT", "진료 항목", {"options": opts(("ACUPUNCTURE", "침"), ("PHARMACOPUNCTURE", "약침"), ("CHUNA", "추나"), ("HERBAL", "한약"), ("CONSULT", "상담"), ("DIET", "다이어트"), ("REMOTE", "비대면"), ("ETC", "기타"))}),
+        # 이 내원에서 못 받고 남긴 금액. 다음 수납 창이 '지난 미수 같이 받기'로 불러오고, 받으면 0으로 돌린다.
+        ("unpaidAmount", "CURRENCY", "미수", {}),
         ("doctor", "RELATION", "진료의", {"target": "workspaceMember", "inverse": "doctorAppointments", "inverseLabel": "진료 예약"}),
         ("room", "TEXT", "치료실", {}),
         ("arrivedAt", "DATE_TIME", "도착", {}),
@@ -246,6 +251,11 @@ OBJECTS = [
         ("amendReason", "TEXT", "수정 사유", {}),
         ("sealedAt", "DATE_TIME", "봉인 일시", {}),
         ("sealNo", "NUMBER", "봉인 번호", {}),
+    ]),
+    # 상용구: 진료실 '오늘 기록' 칸마다 자주 쓰는 문구. 칸(chartSection)을 비우면 모든 칸에서 보인다. 환자 정보는 넣지 않는다.
+    ("chartPhrase", "chartPhrases", "상용구", "상용구", "IconTextPlus", [
+        ("chartSection", "SELECT", "기록 칸", {"options": opts(("CHIEF_COMPLAINT", "주소"), ("HISTORY", "현병력·과거력"), ("FINDINGS", "진찰 소견"), ("DIAGNOSIS", "진단"), ("TREATMENT", "치료"), ("PRESCRIPTION_NOTE", "처방"), ("CARE_PLAN", "계획·주의"))}),
+        ("phraseText", "TEXT", "문구", {}),
     ]),
     # 연락 여정의 단계 하나: 기준 사건 + N일 뒤 시각에 전화·메시지. journey가 같은 단계끼리 한 여정이다.
     # activeFrom 이후에 생긴 사건만 대상('지금부터 들어오는 건만'). 값은 server/journey.mjs와 같아야 한다.
