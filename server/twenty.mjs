@@ -175,6 +175,9 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     async listExpiredIntakes(today) {
       return listAll("intakes", `purgeAfter[lt]:"${today}"`);
     },
+    async listOldStaffMessages(beforeIso) {
+      return listAll("staffMessages", `createdAt[lt]:"${beforeIso}"`, "&depth=0");
+    },
     async intakesOfOrder(orderId) {
       return listAll("intakes", `clinicOrderId[eq]:"${orderId}"`);
     },

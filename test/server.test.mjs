@@ -427,7 +427,7 @@ test("파기: 결제하지 않은 주문과 그 문진·고객, 보유기간 지
   t.s.orders.push({ id: "o1", name: "BR1", orderStatus: "PENDING", createdAt: old, customerId: "p1" }, { id: "o2", name: "BR2", orderStatus: "PAID", createdAt: old, customerId: "p2" });
   t.s.intakes.push({ id: "i1", clinicOrderId: "o1", purgeAfter: "2099-01-01" }, { id: "i2", clinicOrderId: "o2", purgeAfter: "2000-01-01" });
   const r = await runPurge({ cfg, twenty: t });
-  assert.deepEqual(r, { orders: 1, intakes: 2, consults: 0, people: 1 });
+  assert.deepEqual(r, { orders: 1, intakes: 2, consults: 0, people: 1, chats: 0 });
   assert.deepEqual(t.s.orders.map((o) => o.id), ["o2"]);
   assert.deepEqual(t.s.people.map((p) => p.id), ["p2"]);
 });
@@ -438,4 +438,18 @@ test("파기: 차트번호가 있거나 수납·예약이 남은 사람은 지�
   assert.equal(isOrphan({ id: "p", payments: [{ id: "x" }] }), false);
   assert.equal(isOrphan({ id: "p", appointments: [{ id: "a" }] }), false);
   assert.equal(isOrphan(null), false);
+});
+
+test("파기: 보관 기간이 지난 직원 채팅을 지우고, 채팅 객체가 없으면 건너뛴다", async () => {
+  const t = fakeTwenty();
+  const asked = [];
+  t.listOldStaffMessages = async (before) => { asked.push(before); return [{ id: "m1" }, { id: "m2" }]; };
+  const now = new Date("2026-11-03T00:00:00Z");
+  const r = await runPurge({ cfg: { ...cfg, chatRetentionDays: 365 }, twenty: t }, now);
+  assert.equal(r.chats, 2);
+  assert.deepEqual(asked, ["2025-11-03T00:00:00.000Z"]);
+  assert.deepEqual(t.s.deleted, ["staffMessages/m1", "staffMessages/m2"]);
+  t.listOldStaffMessages = async () => { throw new Error("Object staffMessages not found"); };
+  assert.equal((await runPurge({ cfg: { ...cfg, chatRetentionDays: 365 }, twenty: t }, now)).chats, 0);
+  assert.equal((await runPurge({ cfg: { ...cfg, chatRetentionDays: 0 }, twenty: t }, now)).chats, 0);
 });
