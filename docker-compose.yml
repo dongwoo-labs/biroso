@@ -8,7 +8,7 @@
 name: biroso
 
 x-app-env: &app-env
-  TWENTY_URL: http://crm-twenty:3000
+  TWENTY_URL: http://crm-access:3100
   TWENTY_API_KEY: ${TWENTY_API_KEY:-}
   CRON_SECRET: ${CRON_SECRET}
   SITE_URL: ${SITE_URL}
@@ -53,6 +53,14 @@ services:
       # 진료기록 봉인 장부. 키는 `openssl rand -hex 32`로 만들고 .env와 별도로(비밀번호 관리자 등) 보관한다.
       CHART_LEDGER_KEY: ${CHART_LEDGER_KEY:-}
       CHART_LEDGER_PATH: /data/charts/ledger.jsonl
+      CHART_TWENTY_API_KEY: ${CHART_TWENTY_API_KEY:-}
+      # 이상 알림·매일 기준값(server/alert.mjs). 원장 휴대폰을 CHART_ANCHOR_SMS_TO에
+      CHART_ALERT_SOLAPI_API_KEY: ${CHART_ALERT_SOLAPI_API_KEY:-}
+      CHART_ALERT_SOLAPI_API_SECRET: ${CHART_ALERT_SOLAPI_API_SECRET:-}
+      CHART_ALERT_SMS_FROM: ${CHART_ALERT_SMS_FROM:-}
+      CHART_ALERT_SMS_TO: ${CHART_ALERT_SMS_TO:-}
+      CHART_ANCHOR_SMS_TO: ${CHART_ANCHOR_SMS_TO:-}
+      CHART_ALERT_WEBHOOK_URL: ${CHART_ALERT_WEBHOOK_URL:-}
     volumes: [charts:/data/charts]
     networks:
       default:

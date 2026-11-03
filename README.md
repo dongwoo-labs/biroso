@@ -119,15 +119,69 @@ python3 import_upstream_history.py packages ~/Downloads/패키지.xlsx --usage ~
 
 ## 진료기록(차팅)
 
-원장이 업무 화면(crm console)의 **진료실**에서 진료기록을 쓰고 서명한다(Twenty `medicalRecord`). 법적 요건은 따로 검토 중이고, 아래는 설계 전제다.
+원장이 업무 화면(crm console)의 **진료실**에서 진료기록을 쓰고 서명한다(Twenty `medicalRecord`). 법적 요건 대응 현황과 남은 확인 사항은 최종 보고서(프로젝트 파일 `charting-legal/`)에 있다. 아래는 운영 절차다.
 
-- **원장만**: Twenty 설정 > 역할에서 '진료' 역할을 만들어 `진료기록` 객체 읽기·만들기·고치기를 주고, 다른 역할에는 이 객체 권한을 모두 끈다. 삭제는 누구에게도 주지 않는다. console은 권한이 없는 직원에게 진료실 메뉴를 보이지 않는다.
-- **덮어쓰지 않기**: 서명한 기록은 화면에서 고칠 수 없다. '새 판으로 고치기'는 수정 사유를 받아 같은 묶음(`chainId`)의 다음 판을 만들고, 예전 판은 그대로 둔다.
-- **봉인**: 10분마다 `GET /v1/charts/seal`이 서명한 기록의 내용 해시를 다시 계산하고, 암호화한 사본을 장부(`charts` 볼륨의 `ledger.jsonl`, 줄마다 앞 줄 해시를 잇는 체인)에 더한 뒤 `봉인 일시`·`봉인 번호`를 채운다. 매일 05:30 `GET /v1/charts/verify`가 장부 체인과, 봉인한 기록이 Twenty에서 바뀌거나 사라지지 않았는지 검사해 로그(`chart_tampered`)에 남긴다.
-- **키**: `CHART_LEDGER_KEY`(`openssl rand -hex 32`)를 `.env`에 넣고 비밀번호 관리자에도 따로 보관한다. 키를 잃으면 장부 사본을 열 수 없다. 키가 없으면 봉인하지 않는다(오류로 남는다).
-- **보존**: 진료기록이 있는 환자는 파기 작업이 지우지 않는다. 장부는 늘기만 하고 맥 백업(`infra/mac/backup.sh`)에 들어간다.
-- **접속기록**: 열람·작성은 모두 Twenty 접속기록 프록시에 직원 계정으로 남는다.
-- 해시 규칙(`server/charts.mjs`의 `CHART_FIELDS`)은 console `src/industries/clinic-chart.ts`와 같아야 한다. 칸은 더하기만 한다.
+### 설정 순서(처음 한 번, 여러 번 실행해도 된다)
+
+```bash
+cd crm
+python3 setup_clinic_objects.py                                  # 진료기록 객체·칸
+CRM_DIR=~/srv/crm ./install_chart_guard.sh                       # DB 보호(트리거·서명 증거·감사 역할)
+CRM_DIR=~/srv/crm ./install_chart_guard.sh --signer 원장@이메일   # 서명할 수 있는 원장 등록
+python3 setup_chart_roles.py --api-key-role 봉인=진료기록 봉인 --api-key-role 홈페이지=홈페이지 API
+CRM_DIR=~/srv/crm ./install_chart_guard.sh --check               # 설치 상태·원장·서명 증거 수
+```
+
+API 키는 Twenty 설정 > API에서 '봉인'(→ `.env`의 `CHART_TWENTY_API_KEY`)과 '홈페이지'(→ `TWENTY_API_KEY`)로 따로 만든 뒤 위 명령으로 역할을 준다. 사람에게는 설정 > 멤버에서 역할을 준다.
+
+### 역할
+
+| 역할 | 누구 | 진료기록 | 환자 특이사항(업스트림) | 그 밖 |
+| --- | --- | --- | --- | --- |
+| 진료 | 원장 | 읽기·쓰기·서명(삭제 없음) | 읽음 | AI·도구·설정 없음 |
+| Member | 직원 | 없음(메뉴도 안 보임) | 못 봄 | |
+| 운영 관리 | 개발·운영 담당 | 없음 | 못 봄 | 설정 |
+| 진료기록 봉인 | API 키 | 읽기·봉인 칸만 | | |
+| 홈페이지 API | API 키 | ID만(파기 판단용) | 못 봄 | |
+| Admin | **비상 계정 1개** | 읽음(Twenty 기본, 못 바꿈) | 읽음 | 비밀번호는 원장 보관, 쓸 때마다 접속기록 점검 |
+
+렌탈ON 워크스페이스에는 진료기록 객체가 없고 키·토큰이 워크스페이스에 묶여 있어 비로소 기록을 읽지 못한다.
+
+### 서명과 고치기
+
+- 서명 전 필수 항목(시행규칙 제14조): 환자, 진료 일시, 주된 증상, 진단, 치료 내용. 빠지면 서명 버튼이 막고, DB도 거부한다. 환자 주소·주민번호는 받지 않는다(남은 확인 사항).
+- 서명: 화면이 전체 내용을 보여 주고 비밀번호를 다시 받는다. DB 트리거가 서명자 = 로그인한 원장(`chart_audit.signer`에 등록), 내용 해시 = 서버가 다시 계산한 값인지 검사하고 서명 증거(`chart_audit.signature`)를 남긴다.
+- 서명한 기록은 누구도(API 키·관리자 화면 포함) 고치거나 지울 수 없다. '새 판으로 고치기'가 수정 사유를 받아 같은 묶음(`chainId`)의 다음 판을 만든다. 모든 변경은 `chart_audit.change_log`에 남는다.
+- 해시 규칙(`server/charts.mjs`의 `CHART_FIELDS`, `crm/chart_guard.sql`의 `content_hash`, console `clinic-chart.ts`)은 셋이 같아야 한다. 칸은 더하기만 한다.
+
+### 봉인·검사·알림
+
+- 10분마다 `GET /v1/charts/seal`이 서명한 기록을 암호화해 장부(`charts` 볼륨 `ledger.jsonl`, 해시 체인)에 더하고 봉인 번호를 채운다. 서명 뒤 내용이 바뀐 기록이나 장부에 없는 봉인 번호는 **봉인하지 않고** 증거(`kind: suspect`)로 남기고 알린다.
+- 매일 05:30 `GET /v1/charts/verify`가 장부 체인·봉인한 기록·서명 1시간이 지나도 봉인 안 된 기록을 검사해 `checks.jsonl`에 남긴다. 이상이 있으면 알리고, 없으면 "이상 없음 + 장부 끝 해시 앞 16자"를 원장 휴대폰(`CHART_ANCHOR_SMS_TO`)으로 보낸다. 원장은 이 문자를 지우지 않는다. 관리자가 서버의 장부를 고쳐도 원장이 받은 기준값과 맞지 않아 드러난다.
+- 알림은 솔라피 문자(`CHART_ALERT_*`)와 웹훅. 글에는 환자 이름·진료 내용을 넣지 않는다.
+- `CHART_LEDGER_KEY`(`openssl rand -hex 32`)는 `.env`와 원장이 가진 비밀번호 관리자에 둔다. 잃으면 장부 사본을 열 수 없다.
+
+### 이상 대응
+
+1. 알림을 받으면 `docker compose exec api node scripts/chart-ledger.mjs check`로 장부 체인과 끝 해시를 보고, 원장이 받은 기준값과 대조한다.
+2. 바뀐 기록: `chart-ledger.mjs show <기록 ID>`로 봉인 당시 내용을 확인한다. crm의 `pg-logs`(pgaudit)와 접속기록에서 누가 언제 바꿨는지 찾는다.
+3. 원장 확인 후 `chart-ledger.mjs sql <기록 ID>`가 만든 SQL로 되돌린다(DB 관리자 실행, 그 실행도 pgaudit에 남는다). 다시 `GET /v1/charts/verify`가 통과해야 끝.
+4. 날짜·기록 ID·원인·조치·확인한 사람을 사고 기록에 남긴다. 유출이 의심되면 개인정보 유출 신고 기준(72시간)을 따로 검토한다.
+
+### 접속기록 정기 점검(매달)
+
+```bash
+cd ~/srv/crm
+docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | node infra/access-review.mjs --host biroso. --since 2026-11-01 --until 2026-12-01
+```
+
+계정별 진료기록 조회·변경·출력·내보내기, 업무 시간 밖 접근, 실패(권한 없음·DB 거부), 설정·역할 변경이 나온다. 원장 외 계정의 진료기록 접근과 Admin(비상) 계정 사용을 특히 본다. 결과(이상 없음 또는 조치)를 날짜와 점검자 이름으로 기록한다. DB 직접 접속은 crm `pg-logs` 볼륨의 pgaudit 로그(`client=[local]` 줄)를 함께 본다.
+
+### 보존·백업·파기
+
+- 접속기록·pgaudit 로그는 지우지 않고 쌓는다. 매달 진료기록 보존 묶음(crm `infra/mac/backup.sh`, `chart-archive-*`)에 함께 들어가 2년 이상 남는다.
+- 진료기록이 있는 환자는 파기 작업이 지우지 않는다. 진료기록부는 마지막 진료부터 10년(시행규칙 제15조) 보존한다. 지난 기록의 파기는 자동으로 하지 않는다. 해마다 1월에 10년이 지난 환자를 원장이 확인하고 파기한 뒤 파기 기록(대상 수, 일시, 방법, 확인자)을 남긴다. 보존 묶음 중 10년이 지난 것도 이때 지운다.
+- 출력·사본: 진료실의 '기록 출력·내보내기'가 환자 한 명의 모든 판(서명자·해시·봉인·검증 결과 포함)을 인쇄·PDF·JSON으로 낸다. 읽을 때 접속기록에 '출력'·'내보내기'로 남는다. 폐업·이관 때도 이것과 보존 묶음을 쓴다.
 - 테스트: `node --test test/charts.test.mjs`
 
 ## 개인정보

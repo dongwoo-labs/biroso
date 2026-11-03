@@ -21,6 +21,7 @@ import { createConsult } from "./consults.mjs";
 import { runPurge } from "./purge.mjs";
 import { runJourneys } from "./journey.mjs";
 import { createLedger, parseKey, runSeal, runVerify } from "./charts.mjs";
+import { createAlert } from "./alert.mjs";
 
 const MAX_BODY = 32 * 1024;
 
@@ -48,7 +49,15 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
   const allow = createRateLimiter(cfg.rateLimitPer10Min);
   const log = deps.log ?? ((o) => console.log(JSON.stringify(o)));
   const ctxDeps = { cfg, twenty, nicepay, log };
-  const chartDeps = { twenty, log, ledger: deps.ledger ?? createLedger(cfg.chartLedgerPath ?? "/data/charts/ledger.jsonl"), key: parseKey(cfg.chartLedgerKey) };
+  // 진료기록 봉인·검사는 진료기록만 읽고 봉인 칸만 쓰는 전용 키(CHART_TWENTY_API_KEY)를 쓴다. 없으면 기본 키.
+  const chartTwenty = deps.chartTwenty ?? (cfg.chartTwentyApiKey ? createTwenty({ ...cfg, twentyApiKey: cfg.chartTwentyApiKey }) : twenty);
+  const ledgerPath = cfg.chartLedgerPath ?? "/data/charts/ledger.jsonl";
+  const chartDeps = {
+    twenty: chartTwenty, log, key: parseKey(cfg.chartLedgerKey),
+    ledger: deps.ledger ?? createLedger(ledgerPath),
+    checks: deps.checks ?? createLedger(ledgerPath.replace(/[^/]+$/, "checks.jsonl")),
+    alert: deps.alert ?? createAlert(cfg.chartAlert ?? {}, { log }),
+  };
 
   return async (req, res) => {
     const origin = req.headers.origin;

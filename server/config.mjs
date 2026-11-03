@@ -1,5 +1,6 @@
 // 환경변수에서 설정을 읽는다. 기본값은 로컬 개발용이다.
 import clinic from "../src/data/clinic.json" with { type: "json" };
+import { alertConfig } from "./alert.mjs";
 
 const list = (v, d) => (v ?? d).split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -45,6 +46,10 @@ export function loadConfig(env = process.env) {
     // 진료기록 봉인 장부(서명한 진료기록의 암호화 사본, 해시 체인). 키가 없으면 봉인하지 않는다.
     chartLedgerPath: env.CHART_LEDGER_PATH ?? "/data/charts/ledger.jsonl",
     chartLedgerKey: env.CHART_LEDGER_KEY ?? "",
+    // 봉인·검사 전용 Twenty 키(역할 '진료기록 봉인': 진료기록 읽기·고치기만). 없으면 TWENTY_API_KEY
+    chartTwentyApiKey: env.CHART_TWENTY_API_KEY ?? "",
+    // 이상 알림·매일 기준값(server/alert.mjs)
+    chartAlert: alertConfig(env),
     adminSecret: env.ADMIN_SECRET ?? "",
     tel: clinic.tel,
   };
