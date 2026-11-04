@@ -262,7 +262,7 @@ OBJECTS = [
     ]),
     # 상용구: 진료실 '오늘 기록' 칸마다 자주 쓰는 문구. 칸(chartSection)을 비우면 모든 칸에서 보인다. 환자 정보는 넣지 않는다.
     ("chartPhrase", "chartPhrases", "상용구", "상용구", "IconTextPlus", [
-        ("chartSection", "SELECT", "기록 칸", {"options": opts(("CHIEF_COMPLAINT", "주소"), ("HISTORY", "현병력·과거력"), ("FINDINGS", "진찰 소견"), ("DIAGNOSIS", "진단"), ("TREATMENT", "치료"), ("PRESCRIPTION_NOTE", "처방"), ("CARE_PLAN", "계획·주의"), ("CHAT", "직원 채팅"))}),
+        ("chartSection", "SELECT", "기록 칸", {"options": opts(("CHIEF_COMPLAINT", "주소"), ("HISTORY", "현병력·과거력"), ("FINDINGS", "진찰 소견"), ("DIAGNOSIS", "진단"), ("TREATMENT", "치료"), ("PRESCRIPTION_NOTE", "처방"), ("CARE_PLAN", "계획·주의"), ("CHAT", "직원 채팅"), ("COUNSEL", "고객 상담"))}),
         ("phraseText", "TEXT", "문구", {}),
     ]),
     # 직원 채팅(업무 화면 상단 말풍선). room = "all"(전체방) 또는 "dm:<직원 id>:<직원 id>"(1:1, id 정렬).
@@ -274,6 +274,34 @@ OBJECTS = [
         ("customer", "RELATION", "환자", {"target": "person", "inverse": "staffMessages", "inverseLabel": "직원 채팅"}),
         # 고정한 메시지는 방의 '고정' 탭에 남는다(누구나 고정·해제)
         ("pinned", "BOOLEAN", "고정", {"defaultValue": False}),
+    ]),
+    # 고객 상담(업스트림 챗 '고객 상담' 대체: 네이버 톡톡, 카카오 상담톡은 딜러사 계약 뒤). 공용 CRM services/counsel이 채널 웹훅으로
+    # 대화·메시지를 만들고 업무 화면(#/counsel)에서 쓴 답장(OUT·대기)을 채널로 보낸다. 값은 crm services/counsel/counsel.mjs와 같아야 한다.
+    # 채널은 이름·전화번호를 주지 않는다. 직원이 환자를 찾아 연결한다(customer). 진료 내용은 상담톡으로 주고받지 않는다(README '고객 상담').
+    # 환자를 연결하지 않은 대화는 마지막 글로부터 90일(counsel 설정 retentionDays) 지나면 counsel이 지우고,
+    # 환자를 연결한 대화는 그 환자를 파기할 때 파기 작업이 함께 지운다.
+    ("counselThread", "counselThreads", "고객 상담", "고객 상담", "IconMessageChatbot", [
+        ("channel", "SELECT", "채널", {"options": opts(("NAVER_TALK", "네이버 톡톡"), ("KAKAO", "카카오 상담톡"))}),
+        ("channelUser", "TEXT", "채널 사용자 키", {}),
+        ("channelKey", "TEXT", "채널·사용자", {"isUnique": True}),
+        ("threadStatus", "SELECT", "상담 상태", {"options": opts(("WAITING", "답 대기"), ("OPEN", "상담 중"), ("DONE", "완료")), "defaultValue": "'WAITING'"}),
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "counselThreads", "inverseLabel": "고객 상담"}),
+        ("assignee", "RELATION", "담당", {"target": "workspaceMember", "inverse": "assignedCounsels", "inverseLabel": "맡은 고객 상담"}),
+        ("lastMessageAt", "DATE_TIME", "마지막 글", {}),
+        ("lastInboundAt", "DATE_TIME", "고객 마지막 글", {}),
+        ("lastReplyAt", "DATE_TIME", "마지막 답장", {}),
+        ("lastPreview", "TEXT", "마지막 글 내용", {}),
+        ("customerLeft", "BOOLEAN", "고객 나감", {"defaultValue": False}),
+    ]),
+    ("counselMessage", "counselMessages", "상담 메시지", "상담 메시지", "IconMessage", [
+        ("counselThread", "RELATION", "고객 상담", {"target": "counselThread", "inverse": "counselMessages", "inverseLabel": "상담 메시지"}),
+        ("msgDirection", "SELECT", "방향", {"options": opts(("IN", "고객이 보냄"), ("OUT", "직원이 보냄"))}),
+        ("messageText", "TEXT", "내용", {}),
+        ("imageUrl", "TEXT", "사진 주소", {}),
+        ("sendStatus", "SELECT", "보낸 상태", {"options": opts(("QUEUED", "대기"), ("SENDING", "보내는 중"), ("SENT", "보냄"), ("FAILED", "실패"))}),
+        ("sentFrom", "SELECT", "보낸 곳", {"options": opts(("CONSOLE", "업무 화면"), ("CHANNEL_APP", "채널 앱"))}),
+        ("sentAt", "DATE_TIME", "보낸 시각", {}),
+        ("error", "TEXT", "실패 사유", {}),
     ]),
     # 현금 시재(업무 화면 원무 › 수납현황). 고치지 않고 줄을 더한다: 시작 금액·현금 지출·마감 실사.
     # 지금 돈통 = 그날 마지막 시작 금액 + 현금 수납 − 현금 지출, 마감 실사와의 차이를 화면이 보인다. 환자 정보는 넣지 않는다.

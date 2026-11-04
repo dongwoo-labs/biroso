@@ -5,6 +5,7 @@
   운영 관리    개발·운영 담당. 설정은 바꾸지만 진료기록·특이사항은 못 봄.
   진료기록 봉인 API 키 전용. 진료기록 읽기·고치기만(봉인 칸. 내용은 DB 트리거가 막는다).
   홈페이지 API  API 키 전용(홈페이지·예약·파기). 진료기록 내용 칸·특이사항 못 봄(파기 판단용으로 진료기록 ID만 읽음).
+  고객 상담 중계 API 키 전용(crm services/counsel → crm .env COUNSEL_WORKSPACES의 biroso.twentyKey). 고객 상담 대화·메시지만.
 
 사람에게 역할 주기는 Twenty 설정 > 멤버에서 한다. Admin 역할(Twenty 기본, 바꿀 수 없음)은 진료기록을 볼 수 있으므로
 평소에는 아무도 쓰지 않는 비상 계정 하나에만 두고 비밀번호는 원장이 보관한다(README '진료기록').
@@ -46,6 +47,13 @@ ROLES = {
                   canBeAssignedToUsers=False, canBeAssignedToApiKeys=True, canBeAssignedToAgents=False),
         objects={RECORD: dict(canReadObjectRecords=True, canUpdateObjectRecords=False, canSoftDeleteObjectRecords=False, canDestroyObjectRecords=False)},
         hide=HEALTH_FIELDS, hide_record_content=True, flags=[]),
+    # 공용 CRM services/counsel(네이버 톡톡 웹훅·답장, 보관 기간 지난 상담 파기). 고객 상담 대화·메시지만
+    "고객 상담 중계": dict(
+        role=dict(description="API 키 전용. 고객 상담 웹훅 기록·답장 보내기·파기", icon="IconMessageChatbot", canUpdateAllSettings=False, canAccessAllTools=False,
+                  canReadAllObjectRecords=False, canUpdateAllObjectRecords=False, canSoftDeleteAllObjectRecords=False, canDestroyAllObjectRecords=False,
+                  canBeAssignedToUsers=False, canBeAssignedToApiKeys=True, canBeAssignedToAgents=False),
+        objects={o: dict(canReadObjectRecords=True, canUpdateObjectRecords=True, canSoftDeleteObjectRecords=True, canDestroyObjectRecords=True) for o in ("counselThread", "counselMessage")},
+        hide=[], flags=[]),
 }
 
 

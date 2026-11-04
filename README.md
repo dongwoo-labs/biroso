@@ -194,6 +194,15 @@ docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | no
 - 현금 시재(`cashEntries`)는 원무 › 수납현황에서 적는 시작 금액·현금 지출·마감 실사다. 환자 정보가 없어 파기 대상이 아니다.
 - 동의문을 고치면 `src/data/notice.json`의 `version`과 서버 환경변수 `NOTICE_VERSIONS`를 함께 올린다.
 
+## 고객 상담
+
+업스트림 챗의 '고객 상담'(카카오 상담톡·네이버 톡톡 수신)을 대신한다. 네이버 톡톡 문의는 공용 CRM `services/counsel`이 받아 `counselThreads`·`counselMessages`에 남기고, 직원은 업무 화면 **고객 상담**에서 환자를 연결하고 답한다(답장은 counsel이 톡톡으로 보냄). 카카오 상담톡은 카카오 공식 딜러사 계약 뒤에 붙인다.
+
+- 채널은 이름·전화번호를 주지 않는다. 직원이 환자를 찾아 연결한다.
+- 상담톡은 예약·안내용이다. 진료 내용(증상 상세·처방)은 상담톡으로 길게 주고받지 말고 내원·전화로 안내한다. 받은 글은 상담 기록으로 남는다.
+- 환자를 연결하지 않은 대화는 마지막 글로부터 90일 뒤 counsel이 지우고, 환자를 연결한 대화는 그 사람을 파기할 때 파기 작업이 함께 지운다.
+- counsel 키는 `setup_chart_roles.py`의 "고객 상담 중계" 역할로 발급한다(상담 객체만 다룬다). 상용구는 `chartPhrases`의 기록 칸 '고객 상담'.
+
 ## 한의원이 확인해야 할 것
 
 - 통신판매업 신고번호: 기존 사이트에도 비어 있다. 신고 후 `src/data/clinic.json`의 `mailOrderNo`에 넣는다.
