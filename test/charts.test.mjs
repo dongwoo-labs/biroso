@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { alertConfig, createAlert } from "../server/alert.mjs";
 import { canonical, contentHash, createLedger, findTampered, openEntry, parseKey, planSeal, runSeal, runVerify, verifyChain } from "../server/charts.mjs";
 
 const key = parseKey("11".repeat(32));
@@ -106,4 +107,16 @@ test("봉인 번호 쓰기 실패는 다음에 다시 적고, 장부와 다른 �
   assert.deepEqual([odd.patches.length, odd.lines[0].kind, odd.problems[0].why], [0, "suspect", "장부에 없는 봉인 번호가 적혀 있어 봉인하지 않았어요"]);
   const t = findTampered([rec("r1", { sealNo: 5 }), rec("r2", { sealNo: 2 }), rec("r9", { sealNo: 7 })], first.lines);
   assert.deepEqual(t.map((x) => [x.recordId, x.why]), [["r1", "봉인 번호가 장부와 달라요"], ["r9", "장부에 없는 봉인 번호예요"]]);
+});
+
+test("문자 알림: CHART_ALERT_SOLAPI_URL이 있으면 그 주소(가짜 솔라피)로 보낸다", async () => {
+  const env = { CHART_ALERT_SOLAPI_API_KEY: "k", CHART_ALERT_SOLAPI_API_SECRET: "s", CHART_ALERT_SMS_FROM: "051-000-0000", CHART_ALERT_SMS_TO: "010-1234-5678" };
+  const urls = [];
+  const fetchImpl = async (url, o) => { urls.push([url, JSON.parse(o.body).messages[0].to]); return { ok: true }; };
+  assert.deepEqual(await createAlert(alertConfig(env), {}, fetchImpl)("x"), ["sms"]);
+  assert.deepEqual(await createAlert(alertConfig({ ...env, CHART_ALERT_SOLAPI_URL: "http://fake-channels:3900/" }), {}, fetchImpl)("x"), ["sms"]);
+  assert.deepEqual(urls, [
+    ["https://api.solapi.com/messages/v4/send-many/detail", "01012345678"],
+    ["http://fake-channels:3900/messages/v4/send-many/detail", "01012345678"],
+  ]);
 });
