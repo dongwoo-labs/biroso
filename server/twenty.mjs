@@ -191,6 +191,15 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
       for (const c of p.consentRecords ?? []) await call("DELETE", `/consentRecords/${c.id}?soft_delete=false`);
       // 발송 내역은 파기를 막지 않고 함께 지운다
       for (const m of p.messages ?? []) await call("DELETE", `/messages/${m.id}?soft_delete=false`);
+      // 이 사람을 연결한 고객 상담(네이버 톡톡 등) 대화와 메시지도 함께 지운다(객체가 아직 없으면 counselThreads가 비어 있다)
+      for (const t of p.counselThreads ?? []) {
+        for (;;) {
+          const ms = await call("GET", `/counselMessages${q(`counselThreadId[eq]:"${t.id}"`, "&limit=60&depth=0")}`);
+          if (!ms.data.counselMessages.length) break;
+          for (const m of ms.data.counselMessages) await call("DELETE", `/counselMessages/${m.id}?soft_delete=false`);
+        }
+        await call("DELETE", `/counselThreads/${t.id}?soft_delete=false`);
+      }
       for (;;) {
         const tl = await call("GET", `/timelineActivities${q(`targetPersonId[eq]:"${personId}"`, "&limit=60")}`);
         if (!tl.data.timelineActivities.length) break;
