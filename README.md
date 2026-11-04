@@ -1,7 +1,7 @@
 # 비로소한의원 홈페이지
 
-기존 사이트(biroso.kmdclinic.co.kr, 메디스트림 KMD clinic)를 렌탈ON 랜딩과 같은 방식(Astro 정적 사이트 + Vercel 함수 + Twenty CRM)으로 옮긴 것이다.
-렌탈ON과는 사업자·개인정보처리자가 다르므로 저장소, Vercel 프로젝트, Twenty 워크스페이스를 모두 따로 쓴다.
+기존 사이트(biroso.kmdclinic.co.kr, 메디스트림 KMD clinic)를 렌탈ON 랜딩과 같은 방식(Astro 정적 사이트 + Node API 서버 + Twenty CRM, 맥 셀프호스팅)으로 옮긴 것이다.
+렌탈ON과는 사업자·개인정보처리자가 다르므로 저장소, compose 스택, Twenty 워크스페이스를 모두 따로 쓴다.
 
 ## 흐름 (기존 사이트와 같음)
 
@@ -14,7 +14,7 @@
 - **빠른 상담**: 첫 화면에서 이름·휴대폰(+관심 진료)만 받아 Twenty '빠른 상담'에 상담 대기로 쌓는다(`POST /api/v1/consults`). 90일 뒤 자동 파기.
 - **진료 예약**: 진료 상품 → 전화/한의원 진료 → 날짜·시간(진료시간·휴진일·이미 찬 칸 제외) → 문진·동의 → Twenty '진료 예약'
   - 같은 칸 동시 신청은 '예약 자리(자동)' 고유값 필드(slotKey)로 막는다. 직원은 이 칸을 비워 두고, 취소·시간 변경만 하면 홈페이지가 자리를 알아서 푼다.
-- **이벤트·게시판·FAQ**: Twenty에서 고치고, 배포 훅(또는 매일 03:00 KST 재배포)으로 반영한다.
+- **이벤트·게시판·FAQ**: Twenty에서 고치고, 재빌드(Twenty 워크플로가 `builder`를 부르거나 매일 03:00 KST)로 반영한다.
 - 주소는 기존 사이트와 같다(`/telemedicine/<상품 ID>`, `/board/category-N/<게시판 ID>/<글 ID>` 등). 도메인만 옮기면 검색·블로그 링크가 그대로 산다.
 
 ## 폴더
@@ -25,7 +25,6 @@
 | `src/data/` | 기존 사이트에서 옮겨 온 상품·이벤트·글·FAQ, 한의원 정보(`clinic.json`: 진료시간·바로가기 링크·배송비·정책 문구), 동의문(`notice.json`), 비급여 항목(`npay.json`) |
 | `public/media/` | 기존 사이트 그림(1200px webp로 줄임) |
 | `server/` | 주문·결제·예약·환불·파기 API (`handler.mjs`가 라우터) |
-| `api/` | Vercel 함수(전부 `server/handler.mjs`를 부른다) |
 | `crm/` | Twenty 객체 만들기(`setup_clinic_objects.py`), 옮겨 온 콘텐츠 넣기(`seed_content.py`), 업스트림 환자 가져오기(`import_upstream_patients.py`), 예약·패키지 이력 가져오기(`import_upstream_history.py`) |
 | `scripts/import-site.mjs` | 기존 사이트에서 콘텐츠·그림 다시 가져오기(`npm run import-site`) |
 
@@ -34,29 +33,28 @@
 1. Twenty에 비로소한의원용 워크스페이스를 새로 만들고 관리자 API 키를 발급한다.
 2. `TWENTY_URL=… TWENTY_API_KEY=… python3 crm/setup_clinic_objects.py` (이미 만든 워크스페이스에 다시 돌리면 새 필드·객체를 더하고, 옛 주문을 주문 상태 + 배송 상태로 옮긴 뒤 옛 '한의원 방문 수령' 필드를 지운다)
 3. `TWENTY_URL=… TWENTY_API_KEY=… SITE_URL=https://<배포 주소> python3 crm/seed_content.py`
-4. Vercel에 이 저장소로 새 프로젝트를 만든다(프레임워크 Astro, 설정은 `vercel.json`). 환경변수:
+4. `cp .env.example .env` 후 값을 채우고 `docker compose up -d`로 띄운다(아래 '맥 셀프호스팅'). 주요 환경변수:
 
 | 변수 | 설명 |
 | --- | --- |
 | `TWENTY_URL`, `TWENTY_API_KEY` | 주문·예약 기록과 빌드 때 콘텐츠 읽기 |
 | `TWENTY_CONTENT_KEY` | (선택) 빌드 전용 읽기 키. 없으면 `TWENTY_API_KEY` |
 | `NICEPAY_CLIENT_ID`, `NICEPAY_SECRET_KEY` | 나이스페이 키. `S1_`/`S2_`로 시작하는 샌드박스 키면 샌드박스로 승인한다. 없으면 결제를 받지 않는다 |
-| `SITE_URL` | 운영 주소(결제 완료 후 돌아올 주소). 없으면 Vercel 운영 주소 |
+| `SITE_URL` | 운영 주소(결제 완료 후 돌아올 주소, 대표 주소·사이트맵). 없으면 `http://localhost:4321` |
 | `ADMIN_SECRET` | 환불 API 키 |
-| `CRON_SECRET` | Vercel 크론(파기, 재배포) |
-| `VERCEL_DEPLOY_HOOK_URL` | 재배포 훅 |
+| `CRON_SECRET` | `cron` 서비스·Twenty 워크플로가 파기·재빌드 등을 부를 때 쓰는 키 |
 | `PUBLIC_LIVE=1` | 실제 운영 시작. 없으면 '시범 사이트' 표시와 검색 차단 |
-| `PUBLIC_SITE_URL`, `PUBLIC_GA4_ID`, `PUBLIC_NAVER_SITE_VERIFICATION`, `PUBLIC_GOOGLE_SITE_VERIFICATION` | 검색·분석 |
+| `PUBLIC_GA4_ID`, `PUBLIC_NAVER_SITE_VERIFICATION`, `PUBLIC_GOOGLE_SITE_VERIFICATION` | 검색·분석 |
 | `INTAKE_RETENTION_DAYS`(365), `QUICK_CONSULT_RETENTION_DAYS`(90), `PENDING_ORDER_HOURS`(24), `SLOT_CAPACITY`(1), `SLOT_MINUTES`(30), `SLOT_LEAD_HOURS`(2) | 보유기간·예약 칸 |
 
 5. 나이스페이 가맹점 관리자에서 결제 도메인으로 배포 주소를 등록한다.
 
 ## 맥 셀프호스팅
 
-운영은 맥북 한 대에서 docker compose로 한다(`docker-compose.yml`, Cloudflare Tunnel). Vercel 함수(`api/`)와 `vercel.json`은 되돌릴 때를 위해 남겨 둔다.
+운영은 맥북 한 대에서 docker compose로 한다(`docker-compose.yml`, Cloudflare Tunnel).
 
-- `server/server.mjs`가 `server/handler.mjs`를 node:http로 띄우고, Caddy가 `/api/*`를 넘긴다(주소는 Vercel 때와 같다).
-- 배포 훅·크론 대신 `builder`(재빌드)와 `cron`(03:00 재빌드, 04:00 파기)이 돈다.
+- `server/server.mjs`가 `server/handler.mjs`를 node:http로 띄우고, Caddy가 `/api/*`를 넘긴다.
+- `builder`(재빌드, Twenty 워크플로가 `POST http://biroso-builder:8080/rebuild`로 부른다)와 `cron`(03:00 재빌드, 04:00 파기 등)이 돈다.
 - Twenty는 공용 스택(`dongwoo-labs/crm`, `~/srv/crm`)의 `biroso` 워크스페이스를 쓴다. 렌탈ON과 사용자·역할·API 키·데이터 스키마가 따로고, DB 인스턴스와 접속기록 프록시는 같이 쓴다.
 - 설치, Cloudflare, 백업·복원, 맥 보호 조치: `infra/mac/README.md`
 
@@ -213,7 +211,7 @@ docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | no
 
 ```bash
 npm ci
-npm run dev        # http://localhost:4321 (API는 Vercel에서만 동작: vercel dev 사용)
+npm run dev        # http://localhost:4321 (API는 node server/server.mjs 로 따로 띄운다, 포트 8788)
 npm test           # 주문·결제·예약·환불·파기 테스트
 npm run build
 ```

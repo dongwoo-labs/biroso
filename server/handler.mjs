@@ -1,4 +1,4 @@
-// API 라우터 (node:http 형식의 (req, res) 처리 함수). Vercel 함수(api/v1/*.mjs)가 그대로 쓴다.
+// API 라우터 (node:http 형식의 (req, res) 처리 함수). server/server.mjs가 띄운다.
 //   POST /v1/orders              주문서 제출 → 결제 대기 주문 + 결제창 값
 //   POST /v1/payments/return     나이스페이 결제창 인증 결과(form POST) → 승인 → 완료/실패 페이지로 이동
 //   POST /v1/orders/refund       환불(Bearer ADMIN_SECRET, Twenty 워크플로용)
@@ -6,7 +6,7 @@
 //   GET  /v1/closures            휴진일
 //   POST /v1/appointments        진료 예약
 //   POST /v1/consults            빠른 상담 신청
-//   GET  /v1/purge               파기 작업(Bearer CRON_SECRET, Vercel 크론)
+//   GET  /v1/purge               파기 작업(Bearer CRON_SECRET, 매일)
 //   GET  /v1/journeys            연락 여정 → 연락 업무 만들기·자동 취소(Bearer CRON_SECRET, 매일)
 //   GET  /v1/charts/seal         서명한 진료기록을 장부에 봉인(Bearer CRON_SECRET, 10분마다)
 //   GET  /v1/charts/verify       장부 체인·봉인한 진료기록이 그대로인지 검사(Bearer CRON_SECRET, 매일)
@@ -70,7 +70,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
     };
     const redirect = (to) => { res.writeHead(303, { Location: to, "Cache-Control": "no-store" }); res.end(); };
     const url = new URL(req.url ?? "/", "http://x");
-    // Vercel에서는 /api/v1/... 로 들어온다
+    // Caddy가 /api/v1/... 를 그대로 넘긴다
     const path = url.pathname.replace(/^\/api(?=\/)/, "").replace(/\/$/, "");
     const now = new Date();
     const ctx = { ip: (cfg.trustProxy && String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim()) || req.socket?.remoteAddress || "", now };

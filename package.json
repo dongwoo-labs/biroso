@@ -2,7 +2,7 @@
   "name": "@biroso/site",
   "version": "0.1.0",
   "private": true,
-  "description": "비로소한의원 홈페이지: Astro 정적 사이트 + Vercel 함수(주문·결제·진료 예약) + Twenty CRM",
+  "description": "비로소한의원 홈페이지: Astro 정적 사이트 + Node API 서버(주문·결제·진료 예약) + Twenty CRM",
   "type": "module",
   "engines": {
     "node": ">=22"

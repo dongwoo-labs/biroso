@@ -82,7 +82,7 @@ TWENTY_URL=https://<워크스페이스>.<CRM 도메인> TWENTY_API_KEY=<관리�
 
 - 앱 컨테이너는 `http://crm-twenty:3000`으로 부른다. API 키에 워크스페이스가 들어 있어 주소는 같아도 된다.
 
-- Vercel 배포 훅 대신: Twenty 워크플로의 HTTP 요청을 `POST http://rentalon-builder:8080/rebuild`(비로소는 `biroso-builder`), 헤더 `Authorization: Bearer <CRON_SECRET>`로 둔다. 빠져도 매일 03:00에 다시 빌드한다.
+- 사이트 재빌드: Twenty 워크플로의 HTTP 요청을 `POST http://rentalon-builder:8080/rebuild`(비로소는 `biroso-builder`), 헤더 `Authorization: Bearer <CRON_SECRET>`로 둔다. 빠져도 매일 03:00에 다시 빌드한다.
 - 비로소 환불 워크플로: `POST http://biroso-api:8788/v1/orders/refund`, `Authorization: Bearer <ADMIN_SECRET>`.
 - 렌탈ON 후기 링크 즉시 채우기: `POST http://rentalon-lead-api:8787/v1/review-links`, `Authorization: Bearer <CRON_SECRET>`.
 - 키를 `.env`에 넣은 뒤 `docker compose up -d`로 다시 띄운다. 키가 비어 있으면 API(비로소 `api`, 렌탈ON `lead-api`)는 뜨지 않고 재시작을 되풀이한다.
