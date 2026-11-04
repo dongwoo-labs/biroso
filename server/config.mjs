@@ -4,24 +4,20 @@ import { alertConfig } from "./alert.mjs";
 
 const list = (v, d) => (v ?? d).split(",").map((s) => s.trim()).filter(Boolean);
 
-// Vercel에 배포하면 그 배포 주소(미리보기·운영)를 허용 목록에 자동으로 더한다.
-const vercelOrigins = (env) =>
-  [env.VERCEL_URL, env.VERCEL_BRANCH_URL, env.VERCEL_PROJECT_PRODUCTION_URL].filter(Boolean).map((h) => `https://${h}`);
-
 export function loadConfig(env = process.env) {
-  const siteUrl = (env.SITE_URL ?? (env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:4321")).replace(/\/$/, "");
+  const siteUrl = (env.SITE_URL ?? "http://localhost:4321").replace(/\/$/, "");
   const clientId = env.NICEPAY_CLIENT_ID ?? "";
   return {
     port: Number(env.PORT ?? 8788),
     twentyUrl: (env.TWENTY_URL ?? "http://localhost:3000").replace(/\/$/, ""),
     twentyApiKey: env.TWENTY_API_KEY ?? "",
     siteUrl,
-    allowedOrigins: [...list(env.ALLOWED_ORIGINS, "http://localhost:4321"), siteUrl, ...vercelOrigins(env)].map((o) => new URL(o).origin),
+    allowedOrigins: [...list(env.ALLOWED_ORIGINS, "http://localhost:4321"), siteUrl].map((o) => new URL(o).origin),
     // 현재 게시 중인 동의문 버전. 화면이 다른 버전을 보내면 거절한다(src/data/notice.json의 version과 같아야 한다).
     noticeVersions: list(env.NOTICE_VERSIONS, "2026-11-02"),
     rateLimitPer10Min: Number(env.RATE_LIMIT_PER_10MIN ?? 10),
     minFillMs: Number(env.MIN_FILL_MS ?? 2500),
-    trustProxy: env.TRUST_PROXY === "1" || env.VERCEL === "1",
+    trustProxy: env.TRUST_PROXY === "1",
     // 문진(건강정보) 보유기간(일). 처리방침에 적은 기간과 같아야 한다. 진료 기록은 한의원 전자차트에 따로 남긴다.
     intakeRetentionDays: Number(env.INTAKE_RETENTION_DAYS ?? 365),
     // 빠른 상담 신청(이름·휴대폰) 보관 기간(일). 처리방침(src/data/notice.json의 consult)과 같아야 한다.
@@ -43,7 +39,7 @@ export function loadConfig(env = process.env) {
     slotCapacity: Number(env.SLOT_CAPACITY ?? 1),
     slotLeadHours: Number(env.SLOT_LEAD_HOURS ?? 2),
     slotDays: Number(env.SLOT_DAYS ?? 30),
-    // Vercel 크론(CRON_SECRET), Twenty 워크플로의 환불 요청(ADMIN_SECRET)
+    // cron 서비스(CRON_SECRET), Twenty 워크플로의 환불 요청(ADMIN_SECRET)
     cronSecret: env.CRON_SECRET ?? "",
     // 진료기록 봉인 장부(서명한 진료기록의 암호화 사본, 해시 체인). 키가 없으면 봉인하지 않는다.
     chartLedgerPath: env.CHART_LEDGER_PATH ?? "/data/charts/ledger.jsonl",

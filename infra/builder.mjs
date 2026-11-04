@@ -1,4 +1,4 @@
-// 사이트 재빌드 서버. Vercel 배포 훅을 대신한다(의존성 없음).
+// 사이트 재빌드 서버(의존성 없음). Twenty 워크플로와 cron 서비스가 부른다.
 //   POST /rebuild   빌드를 시작하고 바로 202를 돌려준다. Authorization: Bearer CRON_SECRET
 //                   빌드 중에 다시 오면 끝난 뒤 한 번 더 빌드한다.
 //   GET  /healthz   마지막 빌드 결과

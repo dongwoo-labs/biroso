@@ -83,7 +83,7 @@ function fakeNicepay({ approveFails = false, approveError = null, netCancelCode 
 }
 
 const cfg = {
-  allowedOrigins: ["https://biroso.vercel.app"], siteUrl: "https://biroso.vercel.app", noticeVersions: ["2026-11-02"],
+  allowedOrigins: ["https://biroso.example"], siteUrl: "https://biroso.example", noticeVersions: ["2026-11-02"],
   rateLimitPer10Min: 50, minFillMs: 2000, trustProxy: false, intakeRetentionDays: 365, consultRetentionDays: 90, pendingOrderHours: 24,
   nicepay: { clientId: "S2_test", secretKey: SECRET, apiUrl: "https://sandbox-api.nicepay.co.kr" },
   shipping: SHIPPING, hours: HOURS, slotMinutes: 30, slotCapacity: 1, slotLeadHours: 2, slotDays: 30,
@@ -105,9 +105,9 @@ const order = (over = {}) => ({
   name: "김영희", phone: "010-5555-6666", items: [{ slug: "biyulhwan", qty: 1 }], payMethod: "CARD",
   recipient: { zip: "04104", address1: "서울 마포구 굴레방로 9-1", address2: "2층", memo: "" }, consultTime: "평일 오후",
   intake, consents: { privacy: true, sensitive: true, terms: true, dosage: true, marketing: false }, noticeVersion: "2026-11-02",
-  landingPage: "https://biroso.vercel.app/telemedicine/biyulhwan/", formOpenedAt: Date.now() - 10_000, ...over,
+  landingPage: "https://biroso.example/telemedicine/biyulhwan/", formOpenedAt: Date.now() - 10_000, ...over,
 });
-const postJson = (base, path, b, origin = "https://biroso.vercel.app") =>
+const postJson = (base, path, b, origin = "https://biroso.example") =>
   fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(b) });
 const sign = (authToken, amount) => createHash("sha256").update(`${authToken}S2_test${amount}${SECRET}`).digest("hex");
 const returnForm = (base, fields) => fetch(`${base}/api/v1/payments/return`, {
@@ -150,7 +150,7 @@ test("주문 → 결제 승인: 금액은 서버가 계산하고, 서명·금액
   assert.equal(body.pay.amount, 46500);
   assert.equal(body.pay.taxFreeAmt, 43000);
   assert.equal(body.pay.method, "card");
-  assert.equal(body.pay.returnUrl, "https://biroso.vercel.app/api/v1/payments/return");
+  assert.equal(body.pay.returnUrl, "https://biroso.example/api/v1/payments/return");
   assert.equal(t.s.orders[0].orderStatus, "PENDING");
   assert.equal(t.s.orders[0].shippingStatus, "WAITING");
   assert.equal(t.s.orders[0].deliveryMethod, "PARCEL");
@@ -161,7 +161,7 @@ test("주문 → 결제 승인: 금액은 서버가 계산하고, 서명·금액
 
   const res = await returnForm(base, { authResultCode: "0000", tid: "T1", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "tok", signature: sign("tok", 46500) });
   assert.equal(res.status, 303);
-  assert.equal(res.headers.get("location"), `https://biroso.vercel.app/order/complete/?no=${body.orderNo}`);
+  assert.equal(res.headers.get("location"), `https://biroso.example/order/complete/?no=${body.orderNo}`);
   assert.equal(t.s.orders[0].orderStatus, "PAID");
   assert.equal(t.s.orders[0].pgTid, "T1");
   assert.deepEqual(np.calls[0], ["approve", "T1", 46500]);
@@ -396,7 +396,7 @@ test("진료 예약: 가능한 칸만 받고, 같은 칸은 두 번 받지 않�
   const d = new Date(Date.now() + 9 * 3600_000);
   d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7 || 7));
   const date = d.toISOString().slice(0, 10);
-  const slots = await (await fetch(`${base}/api/v1/slots?date=${date}`, { headers: { Origin: "https://biroso.vercel.app" } })).json();
+  const slots = await (await fetch(`${base}/api/v1/slots?date=${date}`, { headers: { Origin: "https://biroso.example" } })).json();
   assert.ok(slots.slots.find((s) => s.time === "15:00").available);
   const appt = (over = {}) => ({
     name: "박철수", phone: "010-1234-5678", product: "diet-consult", method: "PHONE", date, time: "15:00", intake,
