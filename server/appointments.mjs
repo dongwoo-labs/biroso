@@ -65,7 +65,20 @@ export async function createAppointment(raw, ctx, deps) {
     name: label, customerId: personId, productId: product.id, method: v.method, scheduledAt, appointmentStatus: "REQUESTED",
   }, scheduledAt, cfg.slotCapacity, twenty);
   if (!appt) throw new Rejected(409, "slot_taken", "방금 그 시간이 마감됐어요. 다른 시간을 골라 주세요.", { time: "다른 시간을 골라 주세요." });
-  await twenty.createIntake({ name: `${v.name} · 예약 ${label}`, ...toIntake(v.intake, { customerId: personId, appointmentId: appt.id }, cfg, ctx.now) });
-  for (const row of toConsentRecords(v, personId, ctx, ["PRIVACY", "SENSITIVE", "MARKETING"])) await twenty.createConsentRecord(row);
+  try {
+    await twenty.createIntake({ name: `${v.name} · 예약 ${label}`, ...toIntake(v.intake, { customerId: personId, appointmentId: appt.id }, cfg, ctx.now) });
+    for (const row of toConsentRecords(v, personId, ctx, ["PRIVACY", "SENSITIVE", "MARKETING"])) await twenty.createConsentRecord(row);
+  } catch {
+    // 후속 저장의 응답 유실도 포함한다. 저장된 문진·동의는 보존하고 예약만 취소한다.
+    let recoveryRequired = false;
+    try {
+      await twenty.updateAppointment(appt.id, { appointmentStatus: "CANCELLED", slotKey: `released:${appt.id}` });
+    } catch {
+      recoveryRequired = true;
+    }
+    deps.log({ event: "appointment_recording_failed", appointmentId: appt.id, recoveryRequired });
+    if (recoveryRequired) throw new Rejected(502, "appointment_recovery_required", `예약 처리 결과를 확인해야 해요. 다시 신청하지 말고 ${cfg.tel}로 전화해 주세요.`);
+    throw new Rejected(502, "upstream", `예약을 완료하지 못했어요. ${cfg.tel}로 전화 주시면 바로 도와드릴게요.`);
+  }
   return { appointmentId: appt.id, label };
 }

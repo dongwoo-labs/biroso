@@ -3,6 +3,9 @@
 렌탈ON과 개인정보처리자가 다르고(한의원) 건강정보(민감정보)를 다루므로 렌탈ON과 다른 워크스페이스에 만든다.
 사용: TWENTY_URL=https://crm.example.kr TWENTY_API_KEY=<관리자 키> python3 setup_clinic_objects.py
 이미 있는 객체·필드는 건너뛰므로 여러 번 실행해도 된다.
+주문 이관은 현재 주문 상태 선택지에 있는 값만 조회한다. 새 워크스페이스에는 옛 SHIPPED 상태가 없다.
+Twenty REST 필터 배열은 항목 사이에 공백 없이 보낸다.
+기존 선택지의 ID를 보존해 갱신한다. ID를 바꾸면 그 선택지를 쓰는 레코드 값이 초기화될 수 있다.
 """
 import json, os, sys, urllib.parse, urllib.request
 
@@ -253,8 +256,10 @@ def sync_select_options(fields_by_obj):
             if f["name"] == name and f.get("options") is not None:
                 have = {(o["value"], o["label"]) for o in f["options"]}
                 if have != {(o["value"], o["label"]) for o in options}:
+                    ids = {o["value"]: o["id"] for o in f["options"]}
+                    updated = [{**o, **({"id": ids[o["value"]]} if o["value"] in ids else {})} for o in options]
                     gql("mutation($i:UpdateOneFieldMetadataInput!){updateOneField(input:$i){id}}",
-                        {"i": {"id": f["id"], "update": {"options": options}}})
+                        {"i": {"id": f["id"], "update": {"options": updated}}})
                     print("  선택지 갱신:", sing, name)
 
 
@@ -286,7 +291,8 @@ def migrate_orders(fields_by_obj):
     names = {f["name"]: f for f in fields_by_obj.get("clinicOrder", [])}
     legacy = names.get("pickup")
     # 새 필드는 기본값(진료 대기·택배)으로 채워지므로, 이미 끝난 주문과 방문 수령 주문만 고친다
-    done = 'and(shippingStatus[eq]:"WAITING",orderStatus[in]:["SHIPPED","DONE","CANCELLED","REFUNDED"])'
+    statuses = [o["value"] for o in names["orderStatus"]["options"] if o["value"] in ("SHIPPED", "DONE", "CANCELLED", "REFUNDED")]
+    done = 'and(shippingStatus[eq]:"WAITING",orderStatus[in]:' + json.dumps(statuses, separators=(",", ":")) + ')'
     for o in list_all("clinicOrders", done):
         pickup = bool(o.get("pickup"))
         status = o.get("orderStatus")
