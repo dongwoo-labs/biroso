@@ -71,7 +71,7 @@ const quick = [
     </>
   )}
 </head>
-<body>
+<body data-task={task ? "" : undefined}>
   {sample && <p class="bg-wash py-2 text-center text-[13px] text-ink-soft">시범 사이트예요. 실제 운영 전이라 검색에 노출되지 않아요.</p>}
   <header class="sticky top-0 z-20 border-b border-line bg-paper/95 backdrop-blur">
     <div class="wrap flex h-14 items-center justify-between gap-4">
@@ -141,9 +141,12 @@ const quick = [
   <script>
     import { captureAttribution } from "../lib/attribution";
     import { refreshCartBadge } from "../lib/cart";
+    import { showPopups } from "../lib/popup";
     document.addEventListener("astro:page-load", () => {
       captureAttribution();
       refreshCartBadge();
+      // 결제·예약처럼 하던 일이 있는 화면(data-task)에서는 팝업을 띄우지 않는다
+      if (!document.body.hasAttribute("data-task")) showPopups();
       // 모바일에서 메뉴 탭이 넘칠 때 지금 메뉴가 보이도록 탭 줄만 옮긴다
       const tab = document.querySelector<HTMLElement>('nav[aria-label="메뉴"] [aria-current="page"]');
       const bar = tab?.parentElement;
