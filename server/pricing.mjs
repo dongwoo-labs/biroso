@@ -33,6 +33,7 @@ export function priceOrder(lines, products, { pickup = false, zip = "" } = {}, s
     // 수壽 상품은 수壽 매장에서 처방 신청·결제한다(조제·배송·정산을 수壽가 맡는다)
     if (p.salesChannel === "SOO_STORE") throw new PricingError(`${p.name}은(는) 수壽 매장에서 처방 신청해 주세요.`, slug);
     if (p.soldOut) throw new PricingError(`${p.name}은(는) 품절됐어요.`, slug);
+    if (typeof p.stock === "number" && p.stock < qty) throw new PricingError(p.stock > 0 ? `${p.name}은(는) ${p.stock}개만 남았어요. 수량을 줄여 주세요.` : `${p.name}은(는) 품절됐어요.`, slug);
     if (!Number.isInteger(p.salePrice) || p.salePrice <= 0) throw new PricingError(`${p.name}은(는) 가격이 정해지지 않았어요. 한의원으로 문의해 주세요.`, slug);
     items.push({ productId: p.id, slug, name: p.name, unitPrice: p.salePrice, qty, amount: p.salePrice * qty, taxFree: Boolean(p.taxFree), freeShipping: Boolean(p.freeShipping) });
   }

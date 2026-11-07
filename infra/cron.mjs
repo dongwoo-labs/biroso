@@ -1,5 +1,6 @@
-// 예약 작업. Vercel 크론을 대신한다(의존성 없음). 시각은 한국 시간이다.
+// 예약 작업(의존성 없음). 시각은 한국 시간이다.
 // JOBS 환경변수에 한 줄에 하나씩 "HH:MM [요일] METHOD URL"을 적는다. 요일(sun~sat)을 빼면 매일.
+// 시각 대신 "*/10"이라 쓰면 10분마다(매시 00·10·20…분).
 //   03:00 POST http://builder:8080/rebuild
 //   10:00 mon GET http://api:8788/v1/purge
 // 요청에는 Authorization: Bearer CRON_SECRET을 붙이고, 결과를 한 줄 JSON으로 남긴다.
@@ -11,7 +12,7 @@ const jobs = (process.env.JOBS ?? "").split("\n").map((l) => l.trim()).filter(Bo
   const parts = line.split(/\s+/);
   const day = DAYS.includes(parts[1]) ? DAYS.indexOf(parts.splice(1, 1)[0]) : null;
   const [time, method, url] = parts;
-  if (!/^\d\d:\d\d$/.test(time) || !method || !url) throw new Error(`JOBS 줄을 읽지 못했습니다: ${line}`);
+  if (!/^(\d\d:\d\d|\*\/\d{1,2})$/.test(time) || !method || !url) throw new Error(`JOBS 줄을 읽지 못했습니다: ${line}`);
   return { line, time, day, method, url };
 });
 
@@ -20,8 +21,9 @@ async function tick() {
   const kst = new Date(Date.now() + 9 * 3600_000);
   const time = kst.toISOString().slice(11, 16), date = kst.toISOString().slice(0, 10);
   for (const j of jobs) {
-    if (j.time !== time || (j.day !== null && j.day !== kst.getUTCDay())) continue;
-    const key = `${date} ${j.line}`;
+    const every = j.time.startsWith("*/") ? Number(j.time.slice(2)) : 0;
+    if ((every ? kst.getUTCMinutes() % every !== 0 : j.time !== time) || (j.day !== null && j.day !== kst.getUTCDay())) continue;
+    const key = `${date} ${every ? time : ""} ${j.line}`;
     if (fired.has(key)) continue;
     fired.add(key);
     try {

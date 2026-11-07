@@ -82,7 +82,7 @@ TWENTY_URL=https://<워크스페이스>.<CRM 도메인> TWENTY_API_KEY=<관리�
 
 - 앱 컨테이너는 `http://crm-twenty:3000`으로 부른다. API 키에 워크스페이스가 들어 있어 주소는 같아도 된다.
 
-- Vercel 배포 훅 대신: Twenty 워크플로의 HTTP 요청을 `POST http://rentalon-builder:8080/rebuild`(비로소는 `biroso-builder`), 헤더 `Authorization: Bearer <CRON_SECRET>`로 둔다. 빠져도 매일 03:00에 다시 빌드한다.
+- 사이트 재빌드: Twenty 워크플로의 HTTP 요청을 `POST http://rentalon-builder:8080/rebuild`(비로소는 `biroso-builder`), 헤더 `Authorization: Bearer <CRON_SECRET>`로 둔다. 빠져도 매일 03:00에 다시 빌드한다.
 - 비로소 환불 워크플로: `POST http://biroso-api:8788/v1/orders/refund`, `Authorization: Bearer <ADMIN_SECRET>`.
 - 렌탈ON 후기 링크 즉시 채우기: `POST http://rentalon-lead-api:8787/v1/review-links`, `Authorization: Bearer <CRON_SECRET>`.
 - 키를 `.env`에 넣은 뒤 `docker compose up -d`로 다시 띄운다. 키가 비어 있으면 API(비로소 `api`, 렌탈ON `lead-api`)는 뜨지 않고 재시작을 되풀이한다.
@@ -108,11 +108,12 @@ cd ~/srv/<프로젝트> && git pull && DOCKER_CONTEXT=colima-selfhost docker com
 
 ## 백업과 복원
 
-- `infra/mac/backup.sh`가 그 프로젝트에 있는 것만 묶는다. `crm`은 Twenty DB(pg_dump, 두 워크스페이스 모두), 업로드 파일, 접속기록, `rentalon`은 파기기록과 Matomo DB, 모두 `.env`. 이것을 age 공개키(`BACKUP_AGE_RECIPIENTS`)로 암호화한다. 결과는 `~/srv/backups/<프로젝트>/`, 상태는 같은 폴더의 `status.log`, 실패하면 맥 알림이 뜬다.
+- `infra/mac/backup.sh`가 그 프로젝트에 있는 것만 묶는다. `crm`은 Twenty DB(pg_dump, 두 워크스페이스 모두), 업로드 파일, 접속기록, `rentalon`은 파기기록과 Matomo DB, `biroso`는 진료기록 봉인 장부와 점검 기록, 모두 `.env`. `crm`에는 DB 감사 로그(pgaudit, `pg-logs`)도 들어간다. 이것을 age 공개키(`BACKUP_AGE_RECIPIENTS`)로 암호화한다. 결과는 `~/srv/backups/<프로젝트>/`, 상태는 같은 폴더의 `status.log`, 실패하면 맥 알림이 뜬다.
 - 복호화 개인키는 이 맥에 두지 않는다. 맥을 잃어버려도 백업 파일만으로는 내용을 볼 수 없게 하려는 것이다. 키는 비밀번호 관리자와 USB 등 두 곳에 둔다.
 - 외장 디스크: `BACKUP_COPY_DIRS=/Volumes/<디스크>/selfhost-backups`(여러 곳은 `:`로 구분). 연결되지 않은 날은 건너뛰고 `status.log`에 SKIP을 남긴다. 외장 디스크는 APFS(암호화)로 포맷한다.
 - 국내 클라우드: `rclone config`로 네이버 클라우드 Object Storage(S3 호환, 엔드포인트 `https://kr.object.ncloudstorage.com`) 리모트를 만들고 `BACKUP_RCLONE_REMOTE=<리모트>:<버킷>/<프로젝트>`. 버킷은 비공개로 두고 그 버킷만 쓸 수 있는 키를 쓴다.
 - `BACKUP_KEEP_DAYS`(기본 30)일이 지난 백업은 지운다. 파기한 개인정보가 백업에 이 기간만큼 남으므로 처리방침에 적는다.
+- **진료기록 장기 보존**(의료법 시행규칙 제15조, 진료기록부 10년): 30일 회전과 따로, `crm`은 매달 첫 백업 때 진료기록·진료기록이 있는 환자·서명 증거(`chart_audit`)만 CSV로 묶어 `chart-archive-crm-YYYYMM-*.tar.age`를 만들고 `BACKUP_ARCHIVE_DIRS`(`:`로 구분)·`BACKUP_ARCHIVE_RCLONE_REMOTE`에 복사한다. 이 파일은 자동으로 지우지 않는다. 보관 버킷은 30일 백업 버킷과 따로 두고 삭제 권한 없는 키를 쓴다. 10년이 지난 묶음의 파기는 사람이 확인하고 지운 뒤 파기 기록을 남긴다(biroso README '진료기록').
 - 복원 테스트(분기마다 한 번, 그리고 실제 데이터를 넣은 직후):
 
 ```bash
@@ -120,7 +121,7 @@ cd ~/srv/crm
 DOCKER_CONTEXT=colima-selfhost infra/mac/restore-test.sh ~/srv/backups/crm/<파일>.tar.age <개인키 파일>
 ```
 
-임시 PostgreSQL(네트워크 없음)에 복원하고 워크스페이스별 고객 수를 운영 DB와 나란히 보여 준 뒤, 임시 컨테이너와 파일을 지운다. 실제 복구는 같은 방식으로 풀어 `pg_restore`로 새 `twenty-db`에 넣고, 업로드 파일 tar를 `twenty-files` 볼륨에 푼다.
+임시 PostgreSQL(네트워크 없음, 운영과 같은 `crm/twenty-db:local` 이미지)에 복원하고 워크스페이스별 고객 수를 운영 DB와 나란히 보여 주고, 진료기록이 있으면 서명한 기록을 DB 함수로 다시 검증한 결과(서명·검증 통과·실패 건수)를 보여 준 뒤, 임시 컨테이너와 파일을 지운다. 실제 복구는 같은 방식으로 풀어 `pg_restore`로 새 `twenty-db`에 넣고, 업로드 파일 tar를 `twenty-files` 볼륨에 푼다.
 
 ## 맥 보호 조치
 

@@ -49,6 +49,10 @@ def opts(*pairs):
     return [{"value": v, "label": l, "color": colors[i % len(colors)], "position": i} for i, (v, l) in enumerate(pairs)]
 
 
+# 진료 항목(접수 창·베드 보드). 업스트림 접수 창과 같은 목록
+TREATMENT_OPTIONS = opts(("ACUPUNCTURE", "침"), ("PHARMACOPUNCTURE", "약침"), ("CHUNA", "추나"), ("HERBAL", "한약"), ("CONSULT", "상담"), ("DIET", "다이어트"), ("REMOTE", "비대면"), ("ETC", "기타"))
+
+
 # 값은 홈페이지 코드(src/lib/content.ts, server/*.mjs)와 같아야 한다
 KINDS = opts(("PAYMENT", "원내 상품(결제)"), ("RESERVATION", "진료 예약"))
 CATEGORIES = opts(("DIET", "비로소 다이어트"), ("GONGJINDAN", "공진단 수壽"), ("GYEONGOKGO", "경옥고 수壽"), ("UHWANG", "우황청심원 수壽"),
@@ -73,6 +77,16 @@ DISEASES = opts(("NONE", "해당 없음"), ("HEART", "심장질환"), ("DIABETES
                 ("HAIR_LOSS", "탈모"), ("KIDNEY_URO", "신장 및 비뇨기과질환"), ("ATOPY", "아토피"), ("PROSTATE", "전립선질환"), ("OTHER", "기타"))
 MEDS = opts(("NONE", "해당 없음"), ("ANTIDEPRESSANT", "우울증약"), ("ASTHMA", "천식약"), ("HYPERTENSION", "고혈압약"), ("THYROID", "갑상선약"),
             ("DIABETES", "당뇨약"), ("OTHER", "기타(두통약 등)"))
+
+# 예약 상태는 원무 흐름까지 이어진다. 값은 crm console(src/industries/clinic.ts)과 같아야 한다.
+APPT_STATUS = opts(("REQUESTED", "예약 신청"), ("CONFIRMED", "확정"), ("ARRIVED", "도착·대기"), ("IN_ROOM", "진료 중"),
+                   ("TREATED", "수납 대기"), ("DONE", "완료"), ("NO_SHOW", "노쇼"), ("CANCELLED", "취소"))
+APPT_SOURCES = opts(("HOMEPAGE", "홈페이지"), ("PHONE", "전화"), ("NAVER", "네이버 예약"), ("WALKIN", "워크인"), ("STAFF", "직원 등록"))
+
+# 발송. 값은 crm services/messenger, console(src/industries/messages.ts)과 같아야 한다(렌탈ON과 같은 모양).
+MSG_CHANNELS = opts(("ALIMTALK", "알림톡(실패하면 문자)"), ("SMS", "문자"))
+MSG_STATUS = opts(("QUEUED", "대기"), ("SENDING", "보내는 중"), ("SENT", "보냄"), ("FAILED", "실패"), ("SKIPPED", "안 보냄(동의·연락 그만)"), ("CANCELLED", "취소"))
+MSG_TYPES = opts(("ATA", "알림톡"), ("SMS", "문자"), ("LMS", "장문 문자"))
 
 # (nameSingular, namePlural, 단수 라벨, 복수 라벨, 아이콘, [필드...])
 # 필드: (name, type, label, extra)  extra에 options/defaultValue/relation 대상
@@ -105,6 +119,10 @@ OBJECTS = [
         ("gallery", "TEXT", "추가 그림 주소(한 줄에 하나)", {}),
         ("published", "BOOLEAN", "홈페이지 노출", {"defaultValue": False}),
         ("sortOrder", "NUMBER", "노출 순서", {}),
+        # 판매 재고. 비워 두면 재고를 세지 않는다. 숫자를 넣으면 결제할 때 그만큼 빼고, 모자라면 주문을 받지 않는다.
+        ("stock", "NUMBER", "재고(비우면 세지 않음)", {}),
+        # 한 개 원가(약재·포장·조제비). 매출 화면이 결제 금액에서 빼 매출 총이익을 보인다.
+        ("costPrice", "CURRENCY", "원가(1개)", {}),
     ]),
     # 원내 상품 주문. 주문번호는 name. 금액은 주문 API가 Twenty 상품 가격으로 다시 계산해 넣는다(화면 값을 믿지 않는다).
     ("clinicOrder", "clinicOrders", "주문", "주문", "IconShoppingCart", [
@@ -136,6 +154,8 @@ OBJECTS = [
         ("cancelledAt", "DATE_TIME", "취소 일시", {}),
     ]),
     # 진료 예약(전화 진료·내원 진료). 이름은 예약 요약(예: "10/30 14:00 전화 · 다이어트 처방 상담").
+    # 예약 한 건 = 내원 한 번. 원무(도착→진료→치료 끝→수납)도 이 레코드의 상태로 진행한다(업스트림 원무 보드 대체).
+    # 홈페이지 예약·전화 예약·워크인 모두 여기에 쌓이고, 취소가 아닌 예약은 홈페이지 예약 칸을 막는다.
     ("appointment", "appointments", "진료 예약", "진료 예약", "IconCalendarEvent", [
         ("customer", "RELATION", "환자", {"target": "person", "inverse": "appointments", "inverseLabel": "진료 예약"}),
         ("product", "RELATION", "진료 상품", {"target": "product", "inverse": "appointments", "inverseLabel": "진료 예약"}),
@@ -143,7 +163,260 @@ OBJECTS = [
         ("scheduledAt", "DATE_TIME", "예약 일시", {}),
         # 예약 자리 키(<예약 시각>#<번호>). 고유값이라 같은 자리를 동시에 두 번 잡지 못한다. 홈페이지가 채우니 직원은 비워 둔다.
         ("slotKey", "TEXT", "예약 자리(자동)", {"isUnique": True}),
-        ("appointmentStatus", "SELECT", "예약 상태", {"options": opts(("REQUESTED", "예약 신청"), ("CONFIRMED", "확정"), ("DONE", "진료 완료"), ("NO_SHOW", "노쇼"), ("CANCELLED", "취소")), "defaultValue": "'REQUESTED'"}),
+        ("appointmentStatus", "SELECT", "예약 상태", {"options": APPT_STATUS, "defaultValue": "'REQUESTED'"}),
+        ("source", "SELECT", "예약 경로", {"options": APPT_SOURCES, "defaultValue": "'HOMEPAGE'"}),
+        ("visitType", "SELECT", "초진·재진", {"options": opts(("NEW", "초진"), ("RETURN", "재진"))}),
+        # 접수 창에서 고른다(업스트림 접수 창의 보험 구분·진료 항목). 원무 카드와 진료실 머리에 보인다.
+        ("insuranceType", "SELECT", "보험 구분", {"options": opts(("NHI", "건보"), ("AUTO", "자보"), ("GENERAL", "일반"), ("INDUSTRIAL", "산재"))}),
+        ("treatments", "MULTI_SELECT", "진료 항목", {"options": TREATMENT_OPTIONS}),
+        # 이 내원에서 못 받고 남긴 금액. 다음 수납 창이 '지난 미수 같이 받기'로 불러오고, 받으면 0으로 돌린다.
+        ("unpaidAmount", "CURRENCY", "미수", {}),
+        ("doctor", "RELATION", "진료의", {"target": "workspaceMember", "inverse": "doctorAppointments", "inverseLabel": "진료 예약"}),
+        # 베드 보드(치료실): 누운 베드 이름, 베드에 누운 시각(타이머 시작), 타이머 분(비우면 화면 기본값), 끝낸 치료 항목
+        ("room", "TEXT", "베드", {}),
+        ("bedAt", "DATE_TIME", "베드 시작", {}),
+        ("bedMinutes", "NUMBER", "베드 타이머(분)", {}),
+        ("treatmentsDone", "MULTI_SELECT", "끝낸 치료", {"options": TREATMENT_OPTIONS}),
+        ("arrivedAt", "DATE_TIME", "도착", {}),
+        ("roomAt", "DATE_TIME", "진료실 들어감", {}),
+        ("treatedAt", "DATE_TIME", "치료 끝", {}),
+        ("paidAt", "DATE_TIME", "수납", {}),
+        ("cancelReason", "TEXT", "취소·노쇼 사유", {}),
+        ("memo", "TEXT", "예약 메모", {}),
+        ("upstreamId", "TEXT", "업스트림 ID(이관)", {"isUnique": True}),
+    ]),
+    # 수납(내원 진료비). 온라인 주문 결제(clinicOrder)와 따로 둔다. 금액은 원장이 정한 비급여·본인부담 합계.
+    ("payment", "payments", "수납", "수납", "IconCash", [
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "payments", "inverseLabel": "수납"}),
+        ("appointment", "RELATION", "내원", {"target": "appointment", "inverse": "payments", "inverseLabel": "수납"}),
+        ("amount", "CURRENCY", "금액", {}),
+        ("payMethod", "SELECT", "결제 수단", {"options": opts(("CARD", "카드"), ("CASH", "현금"), ("TRANSFER", "계좌이체"), ("LOCAL", "지역화폐"), ("PACKAGE", "패키지 차감"), ("ETC", "기타"))}),
+        ("paidAt", "DATE_TIME", "수납 일시", {}),
+        ("memo", "TEXT", "메모", {}),
+    ]),
+    # 처방 요약(복약 관리용). 약재·용량 같은 처방 상세는 두지 않는다(진료기록 쪽). 복용 종료일 = 수령일(없으면 처방일) + 복용 일수 - 1.
+    # 연락 여정의 복약 3일차·중간·소진 전 연락이 이 날짜들을 기준으로 생긴다.
+    ("prescription", "prescriptions", "처방", "처방", "IconPill", [
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "prescriptions", "inverseLabel": "처방"}),
+        ("appointment", "RELATION", "내원", {"target": "appointment", "inverse": "prescriptions", "inverseLabel": "처방"}),
+        ("clinicOrder", "RELATION", "주문", {"target": "clinicOrder", "inverse": "prescriptions", "inverseLabel": "처방"}),
+        ("prescribedOn", "DATE", "처방일", {}),
+        ("days", "NUMBER", "복용 일수", {}),
+        ("receivedOn", "DATE", "수령일", {}),
+        ("endsOn", "DATE", "복용 종료일", {}),
+        ("doneCheckedAt", "DATE_TIME", "복용 완료 확인", {}),
+        ("doneCheckedBy", "RELATION", "복용 완료 확인자", {"target": "workspaceMember", "inverse": "checkedPrescriptions", "inverseLabel": "복용 완료 확인"}),
+        ("memo", "TEXT", "메모", {}),
+    ]),
+    # 패키지 상품 정의. 횟수형(COUNT: 10회권)·정액형(AMOUNT: 50만 원 충전). 이름은 name.
+    ("packageProduct", "packageProducts", "패키지 상품", "패키지 상품", "IconTicket", [
+        ("kind", "SELECT", "종류", {"options": opts(("COUNT", "횟수형"), ("AMOUNT", "정액형")), "defaultValue": "'COUNT'"}),
+        ("total", "NUMBER", "제공 횟수·금액(원)", {}),
+        ("price", "CURRENCY", "판매가", {}),
+        ("validDays", "NUMBER", "사용 기간(일)", {}),
+        ("active", "BOOLEAN", "판매 중", {"defaultValue": True}),
+    ]),
+    # 환자가 산 패키지. 잔여는 사용 원장으로 계산하고, remaining은 마지막 계산값(목록·필터용)이다.
+    ("patientPackage", "patientPackages", "환자 패키지", "환자 패키지", "IconTicket", [
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "patientPackages", "inverseLabel": "패키지"}),
+        ("packageProduct", "RELATION", "패키지 상품", {"target": "packageProduct", "inverse": "patientPackages", "inverseLabel": "판매"}),
+        ("kind", "SELECT", "종류", {"options": opts(("COUNT", "횟수형"), ("AMOUNT", "정액형")), "defaultValue": "'COUNT'"}),
+        ("total", "NUMBER", "제공 횟수·금액(원)", {}),
+        ("remaining", "NUMBER", "잔여(계산값)", {}),
+        ("startsOn", "DATE", "시작일", {}),
+        ("endsOn", "DATE", "만료일", {}),
+        ("packageStatus", "SELECT", "상태", {"options": opts(("ACTIVE", "사용 중"), ("ENDED", "종료"), ("REFUNDED", "환불")), "defaultValue": "'ACTIVE'"}),
+        ("endReason", "TEXT", "종료 사유", {}),
+        ("upstreamId", "TEXT", "업스트림 ID(이관)", {"isUnique": True}),
+    ]),
+    # 패키지 사용 원장. 고치지 않고 줄을 더한다(차감 취소도 한 줄). amount: 쓴 횟수·금액(취소는 음수로 계산).
+    ("packageEntry", "packageEntries", "패키지 원장", "패키지 원장", "IconListDetails", [
+        ("patientPackage", "RELATION", "환자 패키지", {"target": "patientPackage", "inverse": "entries", "inverseLabel": "원장"}),
+        ("appointment", "RELATION", "내원", {"target": "appointment", "inverse": "packageEntries", "inverseLabel": "패키지 사용"}),
+        ("entryKind", "SELECT", "구분", {"options": opts(("USE", "차감"), ("CANCEL", "차감 취소"), ("EXTEND", "기간 연장"), ("END", "종료"))}),
+        ("amount", "NUMBER", "횟수·금액(원)", {}),
+        ("extendDays", "NUMBER", "연장 일수", {}),
+        ("at", "DATE_TIME", "일시", {}),
+        ("memo", "TEXT", "메모", {}),
+        ("upstreamId", "TEXT", "업스트림 ID(이관)", {"isUnique": True}),
+    ]),
+    # 진료기록(차팅). 원장이 업무 화면 '진료실'에서 쓰고 서명한다. 서명한 기록은 고치지 않고, 고칠 때는 사유와 함께 새 판을 만든다
+    # (같은 chainId, version + 1, supersedes = 앞 판 id). contentHash는 서명할 때 화면이 계산한 내용 해시이고,
+    # 서버의 봉인 작업(server/charts.mjs)이 서명한 기록을 Twenty 밖 장부에 암호화해 남긴 뒤 sealedAt·sealNo를 채운다.
+    # 보존: 진료기록부 보존 기간 동안 지우지 않는다(파기 작업은 진료기록이 있는 환자를 지우지 않는다).
+    # 권한: Twenty 설정 > 역할에서 진료 역할만 이 객체를 읽고 쓰게 하고, 삭제는 누구에게도 주지 않는다(README '진료기록').
+    ("medicalRecord", "medicalRecords", "진료기록", "진료기록", "IconStethoscope", [
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "medicalRecords", "inverseLabel": "진료기록"}),
+        ("appointment", "RELATION", "내원", {"target": "appointment", "inverse": "medicalRecords", "inverseLabel": "진료기록"}),
+        ("doctor", "RELATION", "진료의(서명)", {"target": "workspaceMember", "inverse": "writtenMedicalRecords", "inverseLabel": "작성한 진료기록"}),
+        ("visitAt", "DATE_TIME", "진료 일시", {}),
+        ("chiefComplaint", "TEXT", "주소(주된 호소)", {}),
+        ("history", "TEXT", "현병력·과거력", {}),
+        ("findings", "TEXT", "진찰 소견", {}),
+        ("diagnosis", "TEXT", "진단(상병)", {}),
+        ("treatment", "TEXT", "치료", {}),
+        ("prescriptionNote", "TEXT", "처방", {}),
+        ("carePlan", "TEXT", "계획·주의", {}),  # plan은 Twenty 예약어
+        ("recordStatus", "SELECT", "상태", {"options": opts(("DRAFT", "작성 중"), ("SIGNED", "서명")), "defaultValue": "'DRAFT'"}),
+        ("signedAt", "DATE_TIME", "서명 일시", {}),
+        ("contentHash", "TEXT", "서명 해시", {}),
+        ("chainId", "TEXT", "기록 묶음(판끼리 같음)", {}),
+        ("version", "NUMBER", "판", {}),
+        ("supersedes", "TEXT", "앞 판 ID", {}),
+        ("amendReason", "TEXT", "수정 사유", {}),
+        ("sealedAt", "DATE_TIME", "봉인 일시", {}),
+        ("sealNo", "NUMBER", "봉인 번호", {}),
+    ]),
+    # 상용구: 진료실 '오늘 기록' 칸마다 자주 쓰는 문구. 칸(chartSection)을 비우면 모든 칸에서 보인다. 환자 정보는 넣지 않는다.
+    ("chartPhrase", "chartPhrases", "상용구", "상용구", "IconTextPlus", [
+        ("chartSection", "SELECT", "기록 칸", {"options": opts(("CHIEF_COMPLAINT", "주소"), ("HISTORY", "현병력·과거력"), ("FINDINGS", "진찰 소견"), ("DIAGNOSIS", "진단"), ("TREATMENT", "치료"), ("PRESCRIPTION_NOTE", "처방"), ("CARE_PLAN", "계획·주의"), ("CHAT", "직원 채팅"), ("COUNSEL", "고객 상담"))}),
+        ("phraseText", "TEXT", "문구", {}),
+    ]),
+    # 직원 채팅(업무 화면 상단 말풍선). room = "all"(전체방) 또는 "dm:<직원 id>:<직원 id>"(1:1, id 정렬).
+    # 보낸 사람은 Twenty createdBy(직원 로그인)로 본다. 환자를 붙이면 customer에 건다(누르면 환자 360).
+    # 1:1도 이 객체를 읽을 수 있는 역할이면 Twenty에서 볼 수 있다(행 단위 권한 없음) — README '직원 채팅'.
+    ("staffMessage", "staffMessages", "직원 채팅", "직원 채팅", "IconMessages", [
+        ("room", "TEXT", "방", {}),
+        ("messageText", "TEXT", "내용", {}),
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "staffMessages", "inverseLabel": "직원 채팅"}),
+        # 고정한 메시지는 방의 '고정' 탭에 남는다(누구나 고정·해제)
+        ("pinned", "BOOLEAN", "고정", {"defaultValue": False}),
+    ]),
+    # 고객 상담(업스트림 챗 '고객 상담' 대체: 네이버 톡톡, 카카오 상담톡은 딜러사 계약 뒤). 공용 CRM services/counsel이 채널 웹훅으로
+    # 대화·메시지를 만들고 업무 화면(#/counsel)에서 쓴 답장(OUT·대기)을 채널로 보낸다. 값은 crm services/counsel/counsel.mjs와 같아야 한다.
+    # 채널은 이름·전화번호를 주지 않는다. 직원이 환자를 찾아 연결한다(customer). 진료 내용은 상담톡으로 주고받지 않는다(README '고객 상담').
+    # 환자를 연결하지 않은 대화는 마지막 글로부터 90일(counsel 설정 retentionDays) 지나면 counsel이 지우고,
+    # 환자를 연결한 대화는 그 환자를 파기할 때 파기 작업이 함께 지운다.
+    ("counselThread", "counselThreads", "고객 상담", "고객 상담", "IconMessageChatbot", [
+        ("channel", "SELECT", "채널", {"options": opts(("NAVER_TALK", "네이버 톡톡"), ("KAKAO", "카카오 상담톡"))}),
+        ("channelUser", "TEXT", "채널 사용자 키", {}),
+        ("channelKey", "TEXT", "채널·사용자", {"isUnique": True}),
+        ("threadStatus", "SELECT", "상담 상태", {"options": opts(("WAITING", "답 대기"), ("OPEN", "상담 중"), ("DONE", "완료")), "defaultValue": "'WAITING'"}),
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "counselThreads", "inverseLabel": "고객 상담"}),
+        ("assignee", "RELATION", "담당", {"target": "workspaceMember", "inverse": "assignedCounsels", "inverseLabel": "맡은 고객 상담"}),
+        ("lastMessageAt", "DATE_TIME", "마지막 글", {}),
+        ("lastInboundAt", "DATE_TIME", "고객 마지막 글", {}),
+        ("lastReplyAt", "DATE_TIME", "마지막 답장", {}),
+        ("lastPreview", "TEXT", "마지막 글 내용", {}),
+        ("customerLeft", "BOOLEAN", "고객 나감", {"defaultValue": False}),
+    ]),
+    ("counselMessage", "counselMessages", "상담 메시지", "상담 메시지", "IconMessage", [
+        ("counselThread", "RELATION", "고객 상담", {"target": "counselThread", "inverse": "counselMessages", "inverseLabel": "상담 메시지"}),
+        ("msgDirection", "SELECT", "방향", {"options": opts(("IN", "고객이 보냄"), ("OUT", "직원이 보냄"))}),
+        ("messageText", "TEXT", "내용", {}),
+        ("imageUrl", "TEXT", "사진 주소", {}),
+        ("sendStatus", "SELECT", "보낸 상태", {"options": opts(("QUEUED", "대기"), ("SENDING", "보내는 중"), ("SENT", "보냄"), ("FAILED", "실패"))}),
+        ("sentFrom", "SELECT", "보낸 곳", {"options": opts(("CONSOLE", "업무 화면"), ("CHANNEL_APP", "채널 앱"))}),
+        ("sentAt", "DATE_TIME", "보낸 시각", {}),
+        ("error", "TEXT", "실패 사유", {}),
+    ]),
+    # 현금 시재(업무 화면 원무 › 수납현황). 고치지 않고 줄을 더한다: 시작 금액·현금 지출·마감 실사.
+    # 지금 돈통 = 그날 마지막 시작 금액 + 현금 수납 − 현금 지출, 마감 실사와의 차이를 화면이 보인다. 환자 정보는 넣지 않는다.
+    ("cashEntry", "cashEntries", "현금 시재", "현금 시재", "IconCoin", [
+        ("entryKind", "SELECT", "구분", {"options": opts(("OPENING", "시작 금액"), ("EXPENSE", "현금 지출"), ("COUNT", "마감 실사"))}),
+        ("entryOn", "DATE", "날짜", {}),
+        ("amount", "CURRENCY", "금액", {}),
+        ("memo", "TEXT", "사유·메모", {}),
+    ]),
+    # 홈페이지 팝업 공지(휴진·명절 안내 등). 게시 중이고 기간 안이면 홈페이지에 뜬다(서버가 1분마다 다시 읽음).
+    ("popupNotice", "popupNotices", "팝업 공지", "팝업 공지", "IconSpeakerphone", [
+        ("popupStatus", "SELECT", "게시", {"options": opts(("DRAFT", "작성 중"), ("ON", "게시 중"), ("OFF", "내림")), "defaultValue": "'DRAFT'"}),
+        ("body", "TEXT", "내용", {}),
+        ("imageUrl", "TEXT", "그림 주소", {}),
+        ("linkUrl", "TEXT", "누르면 갈 주소", {}),
+        ("startsAt", "DATE_TIME", "게시 시작", {}),
+        ("endsAt", "DATE_TIME", "게시 끝", {}),
+        ("sortOrder", "NUMBER", "순서", {}),
+    ]),
+    # 재고 품목(약재·소모품·포장재). 판매 상품의 재고는 상품의 stock 칸이 센다.
+    # 수량은 업무 화면이 입고·사용·실사 기록(stockMove)을 더할 때 같이 고친다. 단가는 단위(g·개) 하나의 원가.
+    ("stockItem", "stockItems", "재고 품목", "재고", "IconBox", [
+        ("itemKind", "SELECT", "구분", {"options": opts(("HERB", "약재"), ("SUPPLY", "소모품"), ("PACKING", "포장재")), "defaultValue": "'HERB'"}),
+        ("unit", "TEXT", "단위(g·개)", {}),
+        ("stock", "NUMBER", "현재 수량", {}),
+        ("safetyStock", "NUMBER", "부족 기준", {}),
+        # 현재 수량 ≤ 부족 기준이면 참. 업무 화면이 수량을 고칠 때 같이 고친다('부족' 탭이 이 칸으로 거른다).
+        ("lowStock", "BOOLEAN", "부족", {"defaultValue": False}),
+        ("unitCost", "CURRENCY", "단가(1단위)", {}),
+        ("supplier", "TEXT", "거래처", {}),
+        ("memo", "TEXT", "메모", {}),
+    ]),
+    # 재고 기록. 고치지 않고 줄을 더한다. 사용·출고는 음수, 실사 조정은 실사 뒤 수량과의 차이.
+    ("stockMove", "stockMoves", "재고 기록", "재고 기록", "IconArrowsExchange", [
+        ("stockItem", "RELATION", "품목", {"target": "stockItem", "inverse": "stockMoves", "inverseLabel": "재고 기록"}),
+        ("moveKind", "SELECT", "구분", {"options": opts(("IN", "입고"), ("OUT", "사용·출고"), ("ADJUST", "실사 조정"))}),
+        ("qty", "NUMBER", "수량(+/−)", {}),
+        ("unitCost", "CURRENCY", "단가", {}),
+        ("movedAt", "DATE_TIME", "일시", {}),
+        ("memo", "TEXT", "메모", {}),
+    ]),
+    # 연락 여정의 단계 하나: 기준 사건 + N일 뒤 시각에 전화·메시지. journey가 같은 단계끼리 한 여정이다.
+    # activeFrom 이후에 생긴 사건만 대상('지금부터 들어오는 건만'). 값은 server/journey.mjs와 같아야 한다.
+    ("contactRule", "contactRules", "연락 단계", "연락 여정", "IconRoute", [
+        ("journey", "TEXT", "여정", {}),
+        ("triggerEvent", "SELECT", "기준 사건", {"options": opts(
+            ("RX_START", "복약 시작"), ("RX_MID", "복약 중간"), ("RX_END", "복약 끝"), ("VISIT_DONE", "내원 완료"),
+            ("FIRST_VISIT", "첫 내원"), ("NO_SHOW", "노쇼"), ("CANCELLED", "예약 취소"), ("NO_RETURN", "마지막 내원"),
+            ("PACKAGE_END", "패키지 만료"), ("APPT", "예약일"))}),
+        ("offsetDays", "NUMBER", "며칠 뒤(앞이면 음수)", {}),
+        ("timeOfDay", "TEXT", "시각(HH:MM)", {}),
+        ("channel", "SELECT", "방법", {"options": opts(("CALL", "전화"), ("MESSAGE", "메시지")), "defaultValue": "'CALL'"}),
+        ("isAd", "BOOLEAN", "광고성", {"defaultValue": False}),
+        ("script", "TEXT", "안내 문구", {}),
+        # 메시지 단계에 문구를 고르면 직원 연락 업무 대신 그 시각에 자동 발송한다(발송 내역에 남음). 비우면 직원이 보낼 연락 업무.
+        ("messageTemplate", "RELATION", "자동 발송 문구", {"target": "messageTemplate", "inverse": "contactRules", "inverseLabel": "연락 단계"}),
+        ("active", "BOOLEAN", "사용", {"defaultValue": False}),
+        ("activeFrom", "DATE_TIME", "적용 시작", {}),
+        ("sortOrder", "NUMBER", "순서", {}),
+    ]),
+    # 연락 업무(실행 기록). 여정이 만들거나 직원이 직접 만든다. dedupeKey(<단계>:<사건 레코드>)로 같은 연락을 두 번 만들지 않는다.
+    ("contactTask", "contactTasks", "연락 업무", "연락 업무", "IconPhoneCall", [
+        ("customer", "RELATION", "환자", {"target": "person", "inverse": "contactTasks", "inverseLabel": "연락 업무"}),
+        ("contactRule", "RELATION", "연락 단계", {"target": "contactRule", "inverse": "tasks", "inverseLabel": "연락 업무"}),
+        ("channel", "SELECT", "방법", {"options": opts(("CALL", "전화"), ("MESSAGE", "메시지")), "defaultValue": "'CALL'"}),
+        ("isAd", "BOOLEAN", "광고성", {"defaultValue": False}),
+        ("dueAt", "DATE_TIME", "예정", {}),
+        ("taskStatus", "SELECT", "상태", {"options": opts(("TODO", "할 일"), ("DONE", "완료"), ("CANCELLED", "자동 취소")), "defaultValue": "'TODO'"}),
+        ("result", "SELECT", "결과", {"options": opts(("REACHED", "통화함"), ("NO_ANSWER", "안 받음"), ("CALLBACK", "다시 연락"),
+                                                    ("REACTION", "이상 반응"), ("STOP", "연락 그만"), ("SENT", "보냄"))}),
+        ("resultNote", "TEXT", "결과 메모", {}),
+        ("doneAt", "DATE_TIME", "처리 일시", {}),
+        ("sourceEvent", "TEXT", "원인 사건", {}),
+        ("sourceId", "TEXT", "원인 레코드", {}),
+        ("dedupeKey", "TEXT", "중복 방지 키", {"isUnique": True}),
+        ("cancelReason", "TEXT", "취소 사유", {}),
+        # 이상 반응 등 원장이 봐야 할 건. 원장 확인함에 뜨고, 확인하면 일시가 남는다.
+        ("needsDoctor", "BOOLEAN", "원장 확인 필요", {"defaultValue": False}),
+        ("doctorCheckedAt", "DATE_TIME", "원장 확인", {}),
+    ]),
+    # 환자에게 보내는 메시지(솔라피 알림톡, 실패하면 문자 대체). 공용 CRM의 발송 서비스(dongwoo-labs/crm services/messenger)가
+    # '대기' 건을 보내기 직전에 동의·연락 그만을 다시 확인하고 보낸다. 건강정보는 문구에 넣지 않는다.
+    ("messageTemplate", "messageTemplates", "메시지 문구", "메시지 문구", "IconTemplate", [
+        ("channel", "SELECT", "보내는 방식", {"options": MSG_CHANNELS, "defaultValue": "'ALIMTALK'"}),
+        # 카카오 검수를 받은 알림톡 템플릿 ID(솔라피). 문구는 검수받은 글과 같아야 한다. #{고객}, #{날짜} 같은 변수를 쓴다.
+        ("kakaoTemplateId", "TEXT", "알림톡 템플릿 ID", {}),
+        ("body", "TEXT", "문구", {}),
+        ("isAd", "BOOLEAN", "광고", {"defaultValue": False}),
+        ("active", "BOOLEAN", "사용", {"defaultValue": False}),
+        ("sortOrder", "NUMBER", "순서", {}),
+    ]),
+    ("message", "messages", "발송", "발송 내역", "IconSend", [
+        ("customer", "RELATION", "받는 분", {"target": "person", "inverse": "messages", "inverseLabel": "발송 내역"}),
+        ("messageTemplate", "RELATION", "문구", {"target": "messageTemplate", "inverse": "messages", "inverseLabel": "발송"}),
+        ("sentBy", "RELATION", "보낸 직원", {"target": "workspaceMember", "inverse": "sentMessages", "inverseLabel": "보낸 메시지"}),
+        ("text", "TEXT", "보낸 글", {}),
+        ("variables", "RAW_JSON", "변수", {}),
+        ("isAd", "BOOLEAN", "광고", {"defaultValue": False}),
+        ("msgStatus", "SELECT", "발송 상태", {"options": MSG_STATUS, "defaultValue": "'QUEUED'"}),
+        ("sentType", "SELECT", "보낸 방식", {"options": MSG_TYPES}),
+        ("fallback", "BOOLEAN", "문자 대체", {"defaultValue": False}),
+        ("batch", "TEXT", "발송 묶음", {}),
+        ("scheduledAt", "DATE_TIME", "보낼 시각", {}),
+        ("sentAt", "DATE_TIME", "보낸 시각", {}),
+        ("doneAt", "DATE_TIME", "결과 시각", {}),
+        ("error", "TEXT", "실패·제외 사유", {}),
+        ("providerId", "TEXT", "솔라피 메시지 ID", {}),
+        ("dedupeKey", "TEXT", "중복 방지 키", {"isUnique": True}),
     ]),
     # 문진(건강정보 = 개인정보보호법 제23조 민감정보). 고객·주문과 따로 둬서 역할로 열람을 막을 수 있게 한다.
     ("intake", "intakes", "문진", "문진", "IconStethoscope", [
@@ -230,7 +503,65 @@ PERSON_FIELDS = [
     ("referrer", "TEXT", "이전 사이트", {}),
     ("searchKeyword", "TEXT", "검색어", {}),
     ("consentMarketing", "BOOLEAN", "광고 수신 동의", {"defaultValue": False}),
+    # 환자 정보(업스트림 환자 목록에서 가져옴, import_upstream_patients.py). 차트번호가 환자를 가리키는 키다.
+    # 전화번호는 가족이 같이 쓰는 경우가 있어 환자를 합치는 키로 쓰지 않는다.
+    ("chartNo", "TEXT", "차트번호", {}),
+    ("birthDate", "DATE", "생년월일", {}),
+    ("sex", "SELECT", "성별", {"options": opts(("F", "여성"), ("M", "남성"))}),
+    ("homeAddress", "ADDRESS", "주소", {}),  # address는 Twenty 예약어
+    ("firstVisitAt", "DATE", "첫 내원", {}),
+    ("lastVisitAt", "DATE", "마지막 내원", {}),
+    ("referredBy", "TEXT", "소개자", {}),
+    ("familyNote", "TEXT", "가족", {}),
+    # 업스트림 '특이사항'. 건강정보가 섞일 수 있어 console에는 보이지 않는다(Twenty에서 역할 권한으로 연다).
+    ("upstreamNote", "TEXT", "특이사항(업스트림)", {}),
+    # 예약 안내·공지 같은 정보성 알림. 광고(consentMarketing)와 따로 받는다.
+    ("consentNotice", "BOOLEAN", "알림·공지 수신", {"defaultValue": True}),
+    # 연락 그만하기. 범위: 광고 전체(AD) 또는 모든 연락(ALL). 여정 하나만 그만둘 때는 stoppedJourneys에 여정 이름을 쉼표로 더한다.
+    ("contactStop", "SELECT", "연락 그만", {"options": opts(("AD", "광고 연락 그만"), ("ALL", "모든 연락 그만"))}),
+    ("stoppedJourneys", "TEXT", "그만둔 연락 여정", {}),
 ]
+
+# 연락 여정 기본값(업스트림·우주CRM의 흔한 시나리오). 처음 한 번만 넣고 꺼 둔다. 켜는 시점부터 들어오는 건만 대상이다.
+DEFAULT_RULES = [
+    ("복약 관리", "RX_START", 3, "11:00", "CALL", False, "복약 3일째예요. 드시기 불편한 점이 없는지 여쭤봐요."),
+    ("복약 관리", "RX_MID", 0, "11:00", "MESSAGE", False, "복약 중간 안내: 식사·수분 섭취와 복용 시간을 다시 알려 드려요."),
+    ("복약 관리", "RX_END", -3, "11:00", "CALL", False, "약이 3일 남았어요. 경과를 여쭤보고 다음 진료를 안내해요."),
+    ("노쇼·취소", "NO_SHOW", 1, "10:30", "CALL", False, "어제 예약에 오지 못하신 이유를 여쭤보고 다시 잡아 드려요."),
+    ("노쇼·취소", "CANCELLED", 7, "10:30", "CALL", False, "취소하신 뒤 다시 예약하지 않으셨어요. 불편한 점을 여쭤봐요."),
+    ("재내원", "NO_RETURN", 90, "14:00", "MESSAGE", True, "마지막 내원 뒤 3개월이 지났어요. 계절 진료를 안내해요."),
+    ("패키지", "PACKAGE_END", -14, "11:00", "CALL", False, "패키지 만료 2주 전이에요. 남은 횟수를 알려 드려요."),
+    ("예약 알림", "APPT", -1, "18:00", "MESSAGE", False, "내일 예약을 문자로 알려 드려요."),
+]
+
+# 메시지 문구 기본값. 알림톡은 카카오 검수가 필요해 처음에는 문자(SMS)로 넣고 꺼 둔다. 변수: #{고객} #{날짜} #{시간} #{한의원}
+DEFAULT_TEMPLATES = [
+    ("예약 알림", "SMS", False, "[#{한의원}] #{고객}님, 내일 #{날짜} #{시간} 예약을 알려 드려요. 바꾸시려면 전화 주세요."),
+    ("복약 중간 안내", "SMS", False, "[#{한의원}] #{고객}님, 복약 중간이에요. 식사·수분 섭취와 복용 시간을 지켜 주세요. 불편하시면 전화 주세요."),
+    ("재내원 안내", "SMS", True, "[#{한의원}] #{고객}님, 마지막 내원 뒤 3개월이 지났어요. 계절 진료를 안내해 드려요."),
+]
+
+
+def seed_contact_rules():
+    """기본 단계 중 없는 것(같은 여정·기준 사건)만 꺼 둔 채로 넣는다. 문구 기본값도 같은 이름이 없을 때만 넣고, 같은 이름의 단계에 건다."""
+    templates = {t["name"]: t["id"] for t in rest("GET", "/messageTemplates?limit=200")["data"]["messageTemplates"]}
+    added_t = 0
+    for i, (name, channel, ad, body) in enumerate(DEFAULT_TEMPLATES):
+        if name not in templates:
+            templates[name] = rest("POST", "/messageTemplates", {"name": name, "channel": channel, "isAd": ad, "body": body, "active": False, "sortOrder": i})["data"]["createMessageTemplate"]["id"]
+            added_t += 1
+    have = {(r["journey"], r["triggerEvent"]) for r in rest("GET", "/contactRules?limit=200")["data"]["contactRules"]}
+    added = 0
+    for i, (journey, event, days, time, channel, ad, script) in enumerate(DEFAULT_RULES):
+        if (journey, event) in have:
+            continue
+        tpl = templates.get(journey) if channel == "MESSAGE" else None
+        rest("POST", "/contactRules", {"name": f"{journey} · {script.split('.')[0][:20]}", "journey": journey, "triggerEvent": event, "offsetDays": days,
+                                        "timeOfDay": time, "channel": channel, "isAd": ad, "script": script, "active": False, "sortOrder": i,
+                                        **({"messageTemplateId": tpl} if tpl else {})})
+        added += 1
+    if added or added_t:
+        print("  연락 여정 기본값", added, "단계, 문구", added_t, "개(꺼 둠)")
 
 
 def fix_inverse_names():
@@ -290,10 +621,12 @@ def migrate_orders(fields_by_obj):
     옛 '한의원 방문 수령'(pickup) 필드는 수령 방식으로 옮긴 뒤 지운다. 여러 번 실행해도 된다."""
     names = {f["name"]: f for f in fields_by_obj.get("clinicOrder", [])}
     legacy = names.get("pickup")
-    # 새 필드는 기본값(진료 대기·택배)으로 채워지므로, 이미 끝난 주문과 방문 수령 주문만 고친다
-    statuses = [o["value"] for o in names["orderStatus"]["options"] if o["value"] in ("SHIPPED", "DONE", "CANCELLED", "REFUNDED")]
-    done = 'and(shippingStatus[eq]:"WAITING",orderStatus[in]:' + json.dumps(statuses, separators=(",", ":")) + ')'
-    for o in list_all("clinicOrders", done):
+    # 새 필드는 기본값(진료 대기·택배)으로 채워지므로, 이미 끝난 주문과 방문 수령 주문만 고친다.
+    # 선택지에 없는 값(옮긴 뒤 지운 SHIPPED)으로 거르면 Twenty가 400을 내므로 지금 있는 값만 쓴다.
+    have = {o["value"] for o in (names.get("orderStatus", {}).get("options") or [])}
+    states = [v for v in ("SHIPPED", "DONE", "CANCELLED", "REFUNDED") if v in have]
+    done = 'and(shippingStatus[eq]:"WAITING",orderStatus[in]:[' + ",".join(f'"{v}"' for v in states) + '])'
+    for o in (list_all("clinicOrders", done) if states else []):
         pickup = bool(o.get("pickup"))
         status = o.get("orderStatus")
         ship = {"SHIPPED": "SHIPPED", "DONE": "PICKED_UP" if pickup else "DELIVERED", "CANCELLED": "CANCELLED", "REFUNDED": "CANCELLED"}.get(status, "WAITING")
@@ -355,6 +688,7 @@ def main():
     migrate_orders(detail)
     sync_select_options(objects(detail=True))
     sync_labels(objects(detail=True))
+    seed_contact_rules()
     print("완료")
 
 

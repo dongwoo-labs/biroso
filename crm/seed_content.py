@@ -1,6 +1,6 @@
 """기존 사이트에서 옮겨 온 콘텐츠(src/data/*.json)를 Twenty로 넣는다: 상품, 이벤트, 글, 자주 묻는 질문, 휴진일.
 
-사용: TWENTY_URL=... TWENTY_API_KEY=<관리자 키> SITE_URL=https://biroso.vercel.app python3 seed_content.py
+사용: TWENTY_URL=... TWENTY_API_KEY=<관리자 키> SITE_URL=https://<사이트 주소> python3 seed_content.py
 처음 한 번만 쓰는 스크립트다. 이후에는 Twenty 화면에서 고친다. 주소(slug)나 이름이 같은 레코드가 있으면 건너뛴다.
 단, 이미 넣은 상품에 판매 경로(수壽 매장 연결)가 비어 있으면 그것만 채운다.
 그림 주소는 SITE_URL을 붙인 절대 주소로 넣는다(Twenty 화면에서도 보이도록). 홈페이지 빌드가 다시 사이트 경로로 바꾼다.
@@ -8,7 +8,7 @@
 import json, os, pathlib, re, sys, time, urllib.error, urllib.parse, urllib.request
 from setup_clinic_objects import KEY, UA, URL
 
-SITE = os.environ.get("SITE_URL", "https://biroso.vercel.app").rstrip("/")
+SITE = os.environ.get("SITE_URL", "http://localhost:4321").rstrip("/")
 DATA = pathlib.Path(__file__).resolve().parent.parent / "src/data"
 
 

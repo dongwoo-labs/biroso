@@ -1,12 +1,16 @@
-// API 라우터 (node:http 형식의 (req, res) 처리 함수). Vercel 함수(api/v1/*.mjs)가 그대로 쓴다.
+// API 라우터 (node:http 형식의 (req, res) 처리 함수). server/server.mjs가 띄운다.
 //   POST /v1/orders              주문서 제출 → 결제 대기 주문 + 결제창 값
 //   POST /v1/payments/return     나이스페이 결제창 인증 결과(form POST) → 승인 → 완료/실패 페이지로 이동
 //   POST /v1/orders/refund       환불(Bearer ADMIN_SECRET, Twenty 워크플로용)
 //   GET  /v1/slots?date=         진료 예약 가능 시간
 //   GET  /v1/closures            휴진일
+//   GET  /v1/popups              홈페이지 팝업 공지(게시 중·기간 안)
 //   POST /v1/appointments        진료 예약
 //   POST /v1/consults            빠른 상담 신청
-//   GET  /v1/purge               파기 작업(Bearer CRON_SECRET, Vercel 크론)
+//   GET  /v1/purge               파기 작업(Bearer CRON_SECRET, 매일)
+//   GET  /v1/journeys            연락 여정 → 연락 업무 만들기·자동 취소(Bearer CRON_SECRET, 매일)
+//   GET  /v1/charts/seal         서명한 진료기록을 장부에 봉인(Bearer CRON_SECRET, 10분마다)
+//   GET  /v1/charts/verify       장부 체인·봉인한 진료기록이 그대로인지 검사(Bearer CRON_SECRET, 매일)
 //   GET  /healthz
 
 import { loadConfig } from "./config.mjs";
@@ -15,7 +19,11 @@ import { createNicepay } from "./nicepay.mjs";
 import { createOrder, completePayment, refundOrder, Rejected } from "./orders.mjs";
 import { createAppointment, getSlots, getClosures } from "./appointments.mjs";
 import { createConsult } from "./consults.mjs";
+import { getPopups } from "./popups.mjs";
 import { runPurge } from "./purge.mjs";
+import { runJourneys } from "./journey.mjs";
+import { createLedger, parseKey, runSeal, runVerify } from "./charts.mjs";
+import { createAlert } from "./alert.mjs";
 
 const MAX_BODY = 32 * 1024;
 
@@ -43,6 +51,15 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
   const allow = createRateLimiter(cfg.rateLimitPer10Min);
   const log = deps.log ?? ((o) => console.log(JSON.stringify(o)));
   const ctxDeps = { cfg, twenty, nicepay, log };
+  // 진료기록 봉인·검사는 진료기록만 읽고 봉인 칸만 쓰는 전용 키(CHART_TWENTY_API_KEY)를 쓴다. 없으면 기본 키.
+  const chartTwenty = deps.chartTwenty ?? (cfg.chartTwentyApiKey ? createTwenty({ ...cfg, twentyApiKey: cfg.chartTwentyApiKey }) : twenty);
+  const ledgerPath = cfg.chartLedgerPath ?? "/data/charts/ledger.jsonl";
+  const chartDeps = {
+    twenty: chartTwenty, log, key: parseKey(cfg.chartLedgerKey),
+    ledger: deps.ledger ?? createLedger(ledgerPath),
+    checks: deps.checks ?? createLedger(ledgerPath.replace(/[^/]+$/, "checks.jsonl")),
+    alert: deps.alert ?? createAlert(cfg.chartAlert ?? {}, { log }),
+  };
 
   return async (req, res) => {
     const origin = req.headers.origin;
@@ -55,7 +72,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
     };
     const redirect = (to) => { res.writeHead(303, { Location: to, "Cache-Control": "no-store" }); res.end(); };
     const url = new URL(req.url ?? "/", "http://x");
-    // Vercel에서는 /api/v1/... 로 들어온다
+    // Caddy가 /api/v1/... 를 그대로 넘긴다
     const path = url.pathname.replace(/^\/api(?=\/)/, "").replace(/\/$/, "");
     const now = new Date();
     const ctx = { ip: (cfg.trustProxy && String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim()) || req.socket?.remoteAddress || "", now };
@@ -79,6 +96,14 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
         return redirect(`${cfg.siteUrl}/order/fail/?no=${encodeURIComponent(form.orderId ?? "")}&reason=${encodeURIComponent(`결제 확인 중 문제가 생겼어요. ${cfg.tel}로 연락 주세요.`)}`);
       }
     }
+    if (path === "/v1/journeys") {
+      if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
+      try { return send(200, await runJourneys(ctxDeps, now)); } catch (e) { return fail(e); }
+    }
+    if (path === "/v1/charts/seal" || path === "/v1/charts/verify") {
+      if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
+      try { return send(200, await (path === "/v1/charts/seal" ? runSeal : runVerify)(chartDeps, now)); } catch (e) { return fail(e); }
+    }
     if (path === "/v1/purge") {
       if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
       try { return send(200, await runPurge(ctxDeps, now)); } catch (e) { return fail(e); }
@@ -93,7 +118,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
       } catch (e) { return e instanceof SyntaxError ? send(400, { error: "bad_json" }) : fail(e); }
     }
 
-    if (!["/v1/orders", "/v1/appointments", "/v1/consults", "/v1/slots", "/v1/closures"].includes(path)) return send(404, { error: "not_found" });
+    if (!["/v1/orders", "/v1/appointments", "/v1/consults", "/v1/slots", "/v1/closures", "/v1/popups"].includes(path)) return send(404, { error: "not_found" });
     if (req.method === "OPTIONS") { res.writeHead(origin && cors["Access-Control-Allow-Origin"] ? 204 : 403, cors); return res.end(); }
     if (origin && !cors["Access-Control-Allow-Origin"]) return send(403, { error: "origin_not_allowed" });
 
@@ -103,7 +128,11 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
     if (req.method === "GET" && path === "/v1/closures") {
       try { return send(200, await getClosures(ctxDeps, now)); } catch (e) { return fail(e); }
     }
-    if (req.method !== "POST" || path === "/v1/slots" || path === "/v1/closures") return send(405, { error: "method_not_allowed" });
+    if (req.method === "GET" && path === "/v1/popups") {
+      // 팝업이 안 떠도 홈페이지는 그대로 쓸 수 있으니 실패는 빈 목록으로 답한다
+      try { return send(200, await getPopups(ctxDeps, now)); } catch (e) { log({ ts: now.toISOString(), event: "popups_failed", error: e.message }); return send(200, { popups: [] }); }
+    }
+    if (req.method !== "POST" || path === "/v1/slots" || path === "/v1/closures" || path === "/v1/popups") return send(405, { error: "method_not_allowed" });
     if (!allow(ctx.ip)) return send(429, { error: "too_many_requests", message: `잠시 후 다시 시도해 주세요. 급하시면 ${cfg.tel}로 전화 주세요.` });
 
     let body;

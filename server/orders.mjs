@@ -142,6 +142,10 @@ export async function completePayment(form, { cfg, twenty, nicepay, log }) {
     return fail(`결제를 기록하지 못해 자동으로 취소했어요. ${cfg.tel}로 연락 주세요.`, orderNo);
   }
   log({ event: "order_paid", orderNo, amount });
+  // 재고를 세는 상품이면 결제한 수량만큼 뺀다. 실패해도 결제는 그대로 두고 로그만 남긴다(직원이 재고를 고침).
+  if (Array.isArray(order.items) && twenty.takeStock) {
+    await twenty.takeStock(order.items).catch((e) => log({ event: "stock_update_failed", orderNo, error: e.message }));
+  }
   return `${cfg.siteUrl}/order/complete/?no=${encodeURIComponent(orderNo)}`;
 }
 

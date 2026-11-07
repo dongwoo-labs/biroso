@@ -6,7 +6,7 @@ import { createHandler } from "../server/handler.mjs";
 import { priceOrder, isRemote } from "../server/pricing.mjs";
 import { availableSlots, daySlots, weekday } from "../server/slots.mjs";
 import { verifyAuthSignature, createNicepay, PaymentError } from "../server/nicepay.mjs";
-import { SlotTaken } from "../server/twenty.mjs";
+import { SlotTaken, isOrphan } from "../server/twenty.mjs";
 import { runPurge } from "../server/purge.mjs";
 
 const SHIPPING = { base: 3500, remoteExtra: 2000, freeOver: 100000 };
@@ -83,7 +83,7 @@ function fakeNicepay({ approveFails = false, approveError = null, netCancelCode 
 }
 
 const cfg = {
-  allowedOrigins: ["https://biroso.vercel.app"], siteUrl: "https://biroso.vercel.app", noticeVersions: ["2026-11-02"],
+  allowedOrigins: ["https://biroso.example"], siteUrl: "https://biroso.example", noticeVersions: ["2026-11-02"],
   rateLimitPer10Min: 50, minFillMs: 2000, trustProxy: false, intakeRetentionDays: 365, consultRetentionDays: 90, pendingOrderHours: 24,
   nicepay: { clientId: "S2_test", secretKey: SECRET, apiUrl: "https://sandbox-api.nicepay.co.kr" },
   shipping: SHIPPING, hours: HOURS, slotMinutes: 30, slotCapacity: 1, slotLeadHours: 2, slotDays: 30,
@@ -105,9 +105,9 @@ const order = (over = {}) => ({
   name: "김영희", phone: "010-5555-6666", items: [{ slug: "biyulhwan", qty: 1 }], payMethod: "CARD",
   recipient: { zip: "04104", address1: "서울 마포구 굴레방로 9-1", address2: "2층", memo: "" }, consultTime: "평일 오후",
   intake, consents: { privacy: true, sensitive: true, terms: true, dosage: true, marketing: false }, noticeVersion: "2026-11-02",
-  landingPage: "https://biroso.vercel.app/telemedicine/biyulhwan/", formOpenedAt: Date.now() - 10_000, ...over,
+  landingPage: "https://biroso.example/telemedicine/biyulhwan/", formOpenedAt: Date.now() - 10_000, ...over,
 });
-const postJson = (base, path, b, origin = "https://biroso.vercel.app") =>
+const postJson = (base, path, b, origin = "https://biroso.example") =>
   fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(b) });
 const sign = (authToken, amount) => createHash("sha256").update(`${authToken}S2_test${amount}${SECRET}`).digest("hex");
 const returnForm = (base, fields) => fetch(`${base}/api/v1/payments/return`, {
@@ -150,7 +150,7 @@ test("주문 → 결제 승인: 금액은 서버가 계산하고, 서명·금액
   assert.equal(body.pay.amount, 46500);
   assert.equal(body.pay.taxFreeAmt, 43000);
   assert.equal(body.pay.method, "card");
-  assert.equal(body.pay.returnUrl, "https://biroso.vercel.app/api/v1/payments/return");
+  assert.equal(body.pay.returnUrl, "https://biroso.example/api/v1/payments/return");
   assert.equal(t.s.orders[0].orderStatus, "PENDING");
   assert.equal(t.s.orders[0].shippingStatus, "WAITING");
   assert.equal(t.s.orders[0].deliveryMethod, "PARCEL");
@@ -161,7 +161,7 @@ test("주문 → 결제 승인: 금액은 서버가 계산하고, 서명·금액
 
   const res = await returnForm(base, { authResultCode: "0000", tid: "T1", clientId: "S2_test", orderId: body.orderNo, amount: "46500", authToken: "tok", signature: sign("tok", 46500) });
   assert.equal(res.status, 303);
-  assert.equal(res.headers.get("location"), `https://biroso.vercel.app/order/complete/?no=${body.orderNo}`);
+  assert.equal(res.headers.get("location"), `https://biroso.example/order/complete/?no=${body.orderNo}`);
   assert.equal(t.s.orders[0].orderStatus, "PAID");
   assert.equal(t.s.orders[0].pgTid, "T1");
   assert.deepEqual(np.calls[0], ["approve", "T1", 46500]);
@@ -396,7 +396,7 @@ test("진료 예약: 가능한 칸만 받고, 같은 칸은 두 번 받지 않�
   const d = new Date(Date.now() + 9 * 3600_000);
   d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7 || 7));
   const date = d.toISOString().slice(0, 10);
-  const slots = await (await fetch(`${base}/api/v1/slots?date=${date}`, { headers: { Origin: "https://biroso.vercel.app" } })).json();
+  const slots = await (await fetch(`${base}/api/v1/slots?date=${date}`, { headers: { Origin: "https://biroso.example" } })).json();
   assert.ok(slots.slots.find((s) => s.time === "15:00").available);
   const appt = (over = {}) => ({
     name: "박철수", phone: "010-1234-5678", product: "diet-consult", method: "PHONE", date, time: "15:00", intake,
@@ -427,7 +427,94 @@ test("파기: 결제하지 않은 주문과 그 문진·고객, 보유기간 지
   t.s.orders.push({ id: "o1", name: "BR1", orderStatus: "PENDING", createdAt: old, customerId: "p1" }, { id: "o2", name: "BR2", orderStatus: "PAID", createdAt: old, customerId: "p2" });
   t.s.intakes.push({ id: "i1", clinicOrderId: "o1", purgeAfter: "2099-01-01" }, { id: "i2", clinicOrderId: "o2", purgeAfter: "2000-01-01" });
   const r = await runPurge({ cfg, twenty: t });
-  assert.deepEqual(r, { orders: 1, intakes: 2, consults: 0, people: 1 });
+  assert.deepEqual(r, { orders: 1, intakes: 2, consults: 0, people: 1, chats: 0 });
   assert.deepEqual(t.s.orders.map((o) => o.id), ["o2"]);
   assert.deepEqual(t.s.people.map((p) => p.id), ["p2"]);
+});
+
+test("파기: 차트번호가 있거나 수납·예약이 남은 사람은 지우지 않는다", () => {
+  assert.equal(isOrphan({ id: "p", clinicOrders: [], appointments: [] }), true);
+  assert.equal(isOrphan({ id: "p", chartNo: "000761", clinicOrders: [] }), false);
+  assert.equal(isOrphan({ id: "p", payments: [{ id: "x" }] }), false);
+  assert.equal(isOrphan({ id: "p", appointments: [{ id: "a" }] }), false);
+  assert.equal(isOrphan(null), false);
+});
+
+test("파기: 보관 기간이 지난 직원 채팅을 지우고, 채팅 객체가 없으면 건너뛴다", async () => {
+  const t = fakeTwenty();
+  const asked = [];
+  t.listOldStaffMessages = async (before) => { asked.push(before); return [{ id: "m1" }, { id: "m2" }]; };
+  const now = new Date("2026-11-03T00:00:00Z");
+  const r = await runPurge({ cfg: { ...cfg, chatRetentionDays: 365 }, twenty: t }, now);
+  assert.equal(r.chats, 2);
+  assert.deepEqual(asked, ["2025-11-03T00:00:00.000Z"]);
+  assert.deepEqual(t.s.deleted, ["staffMessages/m1", "staffMessages/m2"]);
+  t.listOldStaffMessages = async () => { throw new Error("Object staffMessages not found"); };
+  assert.equal((await runPurge({ cfg: { ...cfg, chatRetentionDays: 365 }, twenty: t }, now)).chats, 0);
+  assert.equal((await runPurge({ cfg: { ...cfg, chatRetentionDays: 0 }, twenty: t }, now)).chats, 0);
+});
+
+test("재고: 재고를 세는 상품은 남은 수량보다 많이 주문받지 않고, 결제하면 그만큼 뺀다", () => {
+  const ps = PRODUCTS.map((p) => ({ ...p, salePrice: p.salePrice ? p.salePrice.amountMicros / 1e6 : null, stock: p.slug === "biyulhwan" ? 2 : null }));
+  assert.throws(() => priceOrder([{ slug: "biyulhwan", qty: 3 }], ps, {}, SHIPPING), /2개만 남았어요/);
+  assert.equal(priceOrder([{ slug: "biyulhwan", qty: 2 }], ps, {}, SHIPPING).items[0].qty, 2);
+  // 재고 칸이 빈 상품은 세지 않는다
+  assert.equal(priceOrder([{ slug: "gongjindan", qty: 9 }], ps, {}, SHIPPING).items[0].qty, 9);
+  const zero = ps.map((p) => (p.slug === "biyulhwan" ? { ...p, stock: 0 } : p));
+  assert.throws(() => priceOrder([{ slug: "biyulhwan", qty: 1 }], zero, {}, SHIPPING), /품절/);
+});
+
+test("재고: 결제 승인 뒤 재고를 빼고, 재고 갱신이 실패해도 결제는 그대로 둔다", () => {
+  const t = fakeTwenty();
+  const taken = [];
+  t.takeStock = async (items) => { taken.push(...items.map((i) => [i.productId, i.qty])); };
+  return withServer(async (base, tw) => {
+    const body = await (await postJson(base, "/api/v1/orders", order({ items: [{ slug: "biyulhwan", qty: 2 }] }))).json();
+    const res = await returnForm(base, { authResultCode: "0000", tid: "T9", clientId: "S2_test", orderId: body.orderNo, amount: String(body.pay.amount), authToken: "tok", signature: sign("tok", body.pay.amount) });
+    assert.match(res.headers.get("location"), /\/order\/complete\//);
+    assert.deepEqual(taken, [["11111111-1111-1111-1111-111111111111", 2]]);
+    tw.takeStock = async () => { throw new Error("Twenty 500"); };
+    const b2 = await (await postJson(base, "/api/v1/orders", order({ phone: "010-5555-7777" }))).json();
+    const r2 = await returnForm(base, { authResultCode: "0000", tid: "T10", clientId: "S2_test", orderId: b2.orderNo, amount: String(b2.pay.amount), authToken: "tok", signature: sign("tok", b2.pay.amount) });
+    assert.match(r2.headers.get("location"), /\/order\/complete\//);
+    assert.equal(tw.s.orders.find((o) => o.name === b2.orderNo).orderStatus, "PAID");
+  }, { twenty: t });
+});
+
+test("팝업 공지: 게시 중이고 기간 안인 것만 순서대로, 주소는 https·사이트 안만 보낸다", async () => {
+  const { activePopups } = await import("../server/popups.mjs");
+  const now = new Date("2026-11-07T03:00:00Z");
+  const rows = [
+    { id: "a", name: "추석 휴진", popupStatus: "ON", sortOrder: 2, body: "10/3~10/5 휴진", imageUrl: "http://x/a.png", linkUrl: "/faq/", updatedAt: "v1" },
+    { id: "b", name: "11월 이벤트", popupStatus: "ON", sortOrder: 1, startsAt: "2026-11-01T00:00:00Z", endsAt: "2026-11-30T00:00:00Z", imageUrl: "https://cdn.example/b.png", linkUrl: "javascript:alert(1)" },
+    { id: "c", name: "끝난 공지", popupStatus: "ON", endsAt: "2026-11-06T00:00:00Z" },
+    { id: "d", name: "아직", popupStatus: "ON", startsAt: "2026-11-08T00:00:00Z" },
+    { id: "e", name: "작성 중", popupStatus: "DRAFT" },
+  ];
+  const out = activePopups(rows, now);
+  assert.deepEqual(out.map((p) => p.id), ["b", "a"]);
+  assert.equal(out[0].imageUrl, "https://cdn.example/b.png");
+  assert.equal(out[0].linkUrl, "");
+  assert.equal(out[1].imageUrl, "");
+  assert.equal(out[1].linkUrl, "/faq/");
+});
+
+test("팝업 공지: GET /api/v1/popups는 1분 동안 다시 읽지 않고, 실패하면 빈 목록", async () => {
+  const t = fakeTwenty();
+  let reads = 0;
+  t.popupNotices = async () => { reads++; return [{ id: "p1", name: "휴진 안내", popupStatus: "ON" }]; };
+  await withServer(async (base) => {
+    const a = await (await fetch(`${base}/api/v1/popups`)).json();
+    const b = await (await fetch(`${base}/api/v1/popups`)).json();
+    assert.deepEqual(a.popups.map((p) => p.title), ["휴진 안내"]);
+    assert.deepEqual(b, a);
+    assert.equal(reads, 1);
+  }, { twenty: t });
+  const bad = fakeTwenty();
+  bad.popupNotices = async () => { throw new Error("down"); };
+  await withServer(async (base) => {
+    const r = await fetch(`${base}/api/v1/popups`);
+    assert.equal(r.status, 200);
+    assert.deepEqual(await r.json(), { popups: [] });
+  }, { twenty: bad });
 });

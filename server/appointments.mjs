@@ -6,7 +6,7 @@ import { checkCommon, upsertPerson, Rejected } from "./orders.mjs";
 import { SlotTaken } from "./twenty.mjs";
 
 // 예약 칸 잡기. 칸마다 정원만큼 자리 키(<예약 시각>#<번호>)가 있고, slotKey가 Twenty 고유값 필드라
-// 동시에 같은 자리를 잡으면 하나만 성공한다(Vercel 인스턴스가 여러 개여도 안전).
+// 동시에 같은 자리를 잡으면 하나만 성공한다(API 프로세스가 여러 개여도 안전).
 // 자리 주인이 취소됐거나 직원이 Twenty에서 시간을 옮긴 예약이면 그 자리를 풀고 다시 잡는다.
 async function reserveSeat(row, scheduledAt, capacity, twenty) {
   for (let seat = 0; seat < capacity; seat++) {
