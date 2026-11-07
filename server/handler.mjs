@@ -4,6 +4,7 @@
 //   POST /v1/orders/refund       환불(Bearer ADMIN_SECRET, Twenty 워크플로용)
 //   GET  /v1/slots?date=         진료 예약 가능 시간
 //   GET  /v1/closures            휴진일
+//   GET  /v1/popups              홈페이지 팝업 공지(게시 중·기간 안)
 //   POST /v1/appointments        진료 예약
 //   POST /v1/consults            빠른 상담 신청
 //   GET  /v1/purge               파기 작업(Bearer CRON_SECRET, 매일)
@@ -18,6 +19,7 @@ import { createNicepay } from "./nicepay.mjs";
 import { createOrder, completePayment, refundOrder, Rejected } from "./orders.mjs";
 import { createAppointment, getSlots, getClosures } from "./appointments.mjs";
 import { createConsult } from "./consults.mjs";
+import { getPopups } from "./popups.mjs";
 import { runPurge } from "./purge.mjs";
 import { runJourneys } from "./journey.mjs";
 import { createLedger, parseKey, runSeal, runVerify } from "./charts.mjs";
@@ -116,7 +118,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
       } catch (e) { return e instanceof SyntaxError ? send(400, { error: "bad_json" }) : fail(e); }
     }
 
-    if (!["/v1/orders", "/v1/appointments", "/v1/consults", "/v1/slots", "/v1/closures"].includes(path)) return send(404, { error: "not_found" });
+    if (!["/v1/orders", "/v1/appointments", "/v1/consults", "/v1/slots", "/v1/closures", "/v1/popups"].includes(path)) return send(404, { error: "not_found" });
     if (req.method === "OPTIONS") { res.writeHead(origin && cors["Access-Control-Allow-Origin"] ? 204 : 403, cors); return res.end(); }
     if (origin && !cors["Access-Control-Allow-Origin"]) return send(403, { error: "origin_not_allowed" });
 
@@ -126,7 +128,11 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
     if (req.method === "GET" && path === "/v1/closures") {
       try { return send(200, await getClosures(ctxDeps, now)); } catch (e) { return fail(e); }
     }
-    if (req.method !== "POST" || path === "/v1/slots" || path === "/v1/closures") return send(405, { error: "method_not_allowed" });
+    if (req.method === "GET" && path === "/v1/popups") {
+      // 팝업이 안 떠도 홈페이지는 그대로 쓸 수 있으니 실패는 빈 목록으로 답한다
+      try { return send(200, await getPopups(ctxDeps, now)); } catch (e) { log({ ts: now.toISOString(), event: "popups_failed", error: e.message }); return send(200, { popups: [] }); }
+    }
+    if (req.method !== "POST" || path === "/v1/slots" || path === "/v1/closures" || path === "/v1/popups") return send(405, { error: "method_not_allowed" });
     if (!allow(ctx.ip)) return send(429, { error: "too_many_requests", message: `잠시 후 다시 시도해 주세요. 급하시면 ${cfg.tel}로 전화 주세요.` });
 
     let body;

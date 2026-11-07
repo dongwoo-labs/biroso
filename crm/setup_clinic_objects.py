@@ -116,6 +116,10 @@ OBJECTS = [
         ("gallery", "TEXT", "추가 그림 주소(한 줄에 하나)", {}),
         ("published", "BOOLEAN", "홈페이지 노출", {"defaultValue": False}),
         ("sortOrder", "NUMBER", "노출 순서", {}),
+        # 판매 재고. 비워 두면 재고를 세지 않는다. 숫자를 넣으면 결제할 때 그만큼 빼고, 모자라면 주문을 받지 않는다.
+        ("stock", "NUMBER", "재고(비우면 세지 않음)", {}),
+        # 한 개 원가(약재·포장·조제비). 매출 화면이 결제 금액에서 빼 매출 총이익을 보인다.
+        ("costPrice", "CURRENCY", "원가(1개)", {}),
     ]),
     # 원내 상품 주문. 주문번호는 name. 금액은 주문 API가 Twenty 상품 가격으로 다시 계산해 넣는다(화면 값을 믿지 않는다).
     ("clinicOrder", "clinicOrders", "주문", "주문", "IconShoppingCart", [
@@ -310,6 +314,38 @@ OBJECTS = [
         ("entryOn", "DATE", "날짜", {}),
         ("amount", "CURRENCY", "금액", {}),
         ("memo", "TEXT", "사유·메모", {}),
+    ]),
+    # 홈페이지 팝업 공지(휴진·명절 안내 등). 게시 중이고 기간 안이면 홈페이지에 뜬다(서버가 1분마다 다시 읽음).
+    ("popupNotice", "popupNotices", "팝업 공지", "팝업 공지", "IconSpeakerphone", [
+        ("popupStatus", "SELECT", "게시", {"options": opts(("DRAFT", "작성 중"), ("ON", "게시 중"), ("OFF", "내림")), "defaultValue": "'DRAFT'"}),
+        ("body", "TEXT", "내용", {}),
+        ("imageUrl", "TEXT", "그림 주소", {}),
+        ("linkUrl", "TEXT", "누르면 갈 주소", {}),
+        ("startsAt", "DATE_TIME", "게시 시작", {}),
+        ("endsAt", "DATE_TIME", "게시 끝", {}),
+        ("sortOrder", "NUMBER", "순서", {}),
+    ]),
+    # 재고 품목(약재·소모품·포장재). 판매 상품의 재고는 상품의 stock 칸이 센다.
+    # 수량은 업무 화면이 입고·사용·실사 기록(stockMove)을 더할 때 같이 고친다. 단가는 단위(g·개) 하나의 원가.
+    ("stockItem", "stockItems", "재고 품목", "재고", "IconBox", [
+        ("itemKind", "SELECT", "구분", {"options": opts(("HERB", "약재"), ("SUPPLY", "소모품"), ("PACKING", "포장재")), "defaultValue": "'HERB'"}),
+        ("unit", "TEXT", "단위(g·개)", {}),
+        ("stock", "NUMBER", "현재 수량", {}),
+        ("safetyStock", "NUMBER", "부족 기준", {}),
+        # 현재 수량 ≤ 부족 기준이면 참. 업무 화면이 수량을 고칠 때 같이 고친다('부족' 탭이 이 칸으로 거른다).
+        ("lowStock", "BOOLEAN", "부족", {"defaultValue": False}),
+        ("unitCost", "CURRENCY", "단가(1단위)", {}),
+        ("supplier", "TEXT", "거래처", {}),
+        ("memo", "TEXT", "메모", {}),
+    ]),
+    # 재고 기록. 고치지 않고 줄을 더한다. 사용·출고는 음수, 실사 조정은 실사 뒤 수량과의 차이.
+    ("stockMove", "stockMoves", "재고 기록", "재고 기록", "IconArrowsExchange", [
+        ("stockItem", "RELATION", "품목", {"target": "stockItem", "inverse": "stockMoves", "inverseLabel": "재고 기록"}),
+        ("moveKind", "SELECT", "구분", {"options": opts(("IN", "입고"), ("OUT", "사용·출고"), ("ADJUST", "실사 조정"))}),
+        ("qty", "NUMBER", "수량(+/−)", {}),
+        ("unitCost", "CURRENCY", "단가", {}),
+        ("movedAt", "DATE_TIME", "일시", {}),
+        ("memo", "TEXT", "메모", {}),
     ]),
     # 연락 여정의 단계 하나: 기준 사건 + N일 뒤 시각에 전화·메시지. journey가 같은 단계끼리 한 여정이다.
     # activeFrom 이후에 생긴 사건만 대상('지금부터 들어오는 건만'). 값은 server/journey.mjs와 같아야 한다.

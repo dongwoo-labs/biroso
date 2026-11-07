@@ -30,6 +30,8 @@ export const toProduct = (p) => ({
   soldOut: Boolean(p.soldOut), taxFree: Boolean(p.taxFree), freeShipping: Boolean(p.freeShipping),
   telemedicine: Boolean(p.telemedicine), inPerson: Boolean(p.inPerson),
   salePrice: won(p.salePrice) ?? won(p.regularPrice),
+  // 비어 있으면 재고를 세지 않는다
+  stock: typeof p.stock === "number" ? p.stock : null,
 });
 
 export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
@@ -65,6 +67,25 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
       const bySlug = `slug[in]:[${quoted(slugs)}]`;
       const found = await listAll("products", ids.length ? `or(${bySlug},id[in]:[${quoted(ids)}])` : bySlug);
       return found.map(toProduct);
+    },
+    // 결제한 수량만큼 상품 재고를 뺀다(재고를 세는 상품만). 0 밑으로는 내리지 않는다.
+    async takeStock(items) {
+      const ids = [...new Set(items.map((i) => i.productId).filter(Boolean))];
+      if (!ids.length) return [];
+      const rows = await listAll("products", `id[in]:[${quoted(ids)}]`, "&depth=0");
+      const out = [];
+      for (const p of rows) {
+        if (typeof p.stock !== "number") continue;
+        const qty = items.filter((i) => i.productId === p.id).reduce((n, i) => n + (Number(i.qty) || 0), 0);
+        const stock = Math.max(0, p.stock - qty);
+        await call("PATCH", `/products/${p.id}`, stock === 0 ? { stock, soldOut: true } : { stock });
+        out.push({ id: p.id, stock });
+      }
+      return out;
+    },
+    // 홈페이지 팝업 공지: 게시 중인 것(기간은 handler가 거른다)
+    async popupNotices() {
+      return listAll("popupNotices", `popupStatus[eq]:"ON"`, "&depth=0");
     },
     async findPersonByPhone(nationalNumber) {
       const r = await call("GET", `/people${q(`phones.primaryPhoneNumber[eq]:"${nationalNumber}"`, "&limit=1")}`);

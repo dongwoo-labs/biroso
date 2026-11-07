@@ -453,3 +453,68 @@ test("파기: 보관 기간이 지난 직원 채팅을 지우고, 채팅 객체�
   assert.equal((await runPurge({ cfg: { ...cfg, chatRetentionDays: 365 }, twenty: t }, now)).chats, 0);
   assert.equal((await runPurge({ cfg: { ...cfg, chatRetentionDays: 0 }, twenty: t }, now)).chats, 0);
 });
+
+test("재고: 재고를 세는 상품은 남은 수량보다 많이 주문받지 않고, 결제하면 그만큼 뺀다", () => {
+  const ps = PRODUCTS.map((p) => ({ ...p, salePrice: p.salePrice ? p.salePrice.amountMicros / 1e6 : null, stock: p.slug === "biyulhwan" ? 2 : null }));
+  assert.throws(() => priceOrder([{ slug: "biyulhwan", qty: 3 }], ps, {}, SHIPPING), /2개만 남았어요/);
+  assert.equal(priceOrder([{ slug: "biyulhwan", qty: 2 }], ps, {}, SHIPPING).items[0].qty, 2);
+  // 재고 칸이 빈 상품은 세지 않는다
+  assert.equal(priceOrder([{ slug: "gongjindan", qty: 9 }], ps, {}, SHIPPING).items[0].qty, 9);
+  const zero = ps.map((p) => (p.slug === "biyulhwan" ? { ...p, stock: 0 } : p));
+  assert.throws(() => priceOrder([{ slug: "biyulhwan", qty: 1 }], zero, {}, SHIPPING), /품절/);
+});
+
+test("재고: 결제 승인 뒤 재고를 빼고, 재고 갱신이 실패해도 결제는 그대로 둔다", () => {
+  const t = fakeTwenty();
+  const taken = [];
+  t.takeStock = async (items) => { taken.push(...items.map((i) => [i.productId, i.qty])); };
+  return withServer(async (base, tw) => {
+    const body = await (await postJson(base, "/api/v1/orders", order({ items: [{ slug: "biyulhwan", qty: 2 }] }))).json();
+    const res = await returnForm(base, { authResultCode: "0000", tid: "T9", clientId: "S2_test", orderId: body.orderNo, amount: String(body.pay.amount), authToken: "tok", signature: sign("tok", body.pay.amount) });
+    assert.match(res.headers.get("location"), /\/order\/complete\//);
+    assert.deepEqual(taken, [["11111111-1111-1111-1111-111111111111", 2]]);
+    tw.takeStock = async () => { throw new Error("Twenty 500"); };
+    const b2 = await (await postJson(base, "/api/v1/orders", order({ phone: "010-5555-7777" }))).json();
+    const r2 = await returnForm(base, { authResultCode: "0000", tid: "T10", clientId: "S2_test", orderId: b2.orderNo, amount: String(b2.pay.amount), authToken: "tok", signature: sign("tok", b2.pay.amount) });
+    assert.match(r2.headers.get("location"), /\/order\/complete\//);
+    assert.equal(tw.s.orders.find((o) => o.name === b2.orderNo).orderStatus, "PAID");
+  }, { twenty: t });
+});
+
+test("팝업 공지: 게시 중이고 기간 안인 것만 순서대로, 주소는 https·사이트 안만 보낸다", async () => {
+  const { activePopups } = await import("../server/popups.mjs");
+  const now = new Date("2026-11-07T03:00:00Z");
+  const rows = [
+    { id: "a", name: "추석 휴진", popupStatus: "ON", sortOrder: 2, body: "10/3~10/5 휴진", imageUrl: "http://x/a.png", linkUrl: "/faq/", updatedAt: "v1" },
+    { id: "b", name: "11월 이벤트", popupStatus: "ON", sortOrder: 1, startsAt: "2026-11-01T00:00:00Z", endsAt: "2026-11-30T00:00:00Z", imageUrl: "https://cdn.example/b.png", linkUrl: "javascript:alert(1)" },
+    { id: "c", name: "끝난 공지", popupStatus: "ON", endsAt: "2026-11-06T00:00:00Z" },
+    { id: "d", name: "아직", popupStatus: "ON", startsAt: "2026-11-08T00:00:00Z" },
+    { id: "e", name: "작성 중", popupStatus: "DRAFT" },
+  ];
+  const out = activePopups(rows, now);
+  assert.deepEqual(out.map((p) => p.id), ["b", "a"]);
+  assert.equal(out[0].imageUrl, "https://cdn.example/b.png");
+  assert.equal(out[0].linkUrl, "");
+  assert.equal(out[1].imageUrl, "");
+  assert.equal(out[1].linkUrl, "/faq/");
+});
+
+test("팝업 공지: GET /api/v1/popups는 1분 동안 다시 읽지 않고, 실패하면 빈 목록", async () => {
+  const t = fakeTwenty();
+  let reads = 0;
+  t.popupNotices = async () => { reads++; return [{ id: "p1", name: "휴진 안내", popupStatus: "ON" }]; };
+  await withServer(async (base) => {
+    const a = await (await fetch(`${base}/api/v1/popups`)).json();
+    const b = await (await fetch(`${base}/api/v1/popups`)).json();
+    assert.deepEqual(a.popups.map((p) => p.title), ["휴진 안내"]);
+    assert.deepEqual(b, a);
+    assert.equal(reads, 1);
+  }, { twenty: t });
+  const bad = fakeTwenty();
+  bad.popupNotices = async () => { throw new Error("down"); };
+  await withServer(async (base) => {
+    const r = await fetch(`${base}/api/v1/popups`);
+    assert.equal(r.status, 200);
+    assert.deepEqual(await r.json(), { popups: [] });
+  }, { twenty: bad });
+});

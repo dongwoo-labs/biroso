@@ -190,6 +190,9 @@ docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | no
 - 직원 채팅(업무 화면 상단 말풍선, `staffMessages`)은 환자 이름이 오갈 수 있어 `CHAT_RETENTION_DAYS`(기본 365일)가 지나면 같은 파기 작업이 지운다. 0이면 지우지 않는다. 1:1 대화도 직원 채팅 객체를 읽을 수 있는 역할이면 Twenty에서 볼 수 있다.
 - 직원 채팅 방은 주제 채널(`ch:appointments` 등, 업무 화면 설정)과 1:1이다. 메시지 `pinned`로 고정, 상용구(`chartPhrases`)의 기록 칸이 '직원 채팅'이면 입력 칸에서 `/`로 불러 쓴다.
 - 현금 시재(`cashEntries`)는 원무 › 수납현황에서 적는 시작 금액·현금 지출·마감 실사다. 환자 정보가 없어 파기 대상이 아니다.
+- 팝업 공지(`popupNotices`)는 업무 화면 › 팝업 공지에서 쓴다. 게시 중이고 기간 안인 것만 `GET /api/v1/popups`로 홈페이지에 뜬다(서버가 1분 기억, 그림·링크는 https·사이트 안 주소만). 결제·예약 화면에는 띄우지 않는다.
+- 재고: 판매 상품은 상품의 `stock`(비우면 세지 않음)을 결제 승인 때 빼고, 모자라면 주문을 받지 않는다. 0이 되면 품절로 바꾼다. 환불해도 저절로 되돌리지 않는다(직원이 고침). 약재·소모품·포장재는 `stockItems`, 입고·사용·실사 기록은 `stockMoves`(업무 화면 › 재고).
+- 원가: 상품의 `costPrice` × 결제 수량 + 재고 '사용' 기록 × 단가를 업무 화면 › 매출이 순매출에서 빼 매출 총이익으로 보인다.
 - 동의문을 고치면 `src/data/notice.json`의 `version`과 서버 환경변수 `NOTICE_VERSIONS`를 함께 올린다.
 
 ## 고객 상담
