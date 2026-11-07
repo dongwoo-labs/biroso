@@ -90,8 +90,8 @@ const cfg = {
   cronSecret: "cron", adminSecret: "admin", tel: "02-2039-0520",
 };
 
-async function withServer(fn, { twenty = fakeTwenty(), nicepay = fakeNicepay() } = {}) {
-  const srv = http.createServer(createHandler(cfg, { twenty, nicepay, log: () => {} }));
+async function withServer(fn, { twenty = fakeTwenty(), nicepay = fakeNicepay(), log = () => {} } = {}) {
+  const srv = http.createServer(createHandler(cfg, { twenty, nicepay, log }));
   await new Promise((r) => srv.listen(0, r));
   const base = `http://127.0.0.1:${srv.address().port}`;
   try { await fn(base, twenty, nicepay); } finally { srv.close(); }
@@ -419,6 +419,57 @@ test("진료 예약: 가능한 칸만 받고, 같은 칸은 두 번 받지 않�
   assert.equal((await postJson(base, "/api/v1/appointments", appt({ phone: "010-2222-3333" }))).status, 201);
   assert.match(t.s.appointments[0].slotKey, /^released:/);
 }));
+
+test("진료 예약: 후속 저장 실패는 자리를 풀고, 취소 결과가 불명확하면 전화 확인을 안내한다", async (t) => {
+  for (const failure of ["intake", "consent", "cancel-before", "cancel-after"]) {
+    await t.test(failure, async () => {
+      const twenty = fakeTwenty(), logs = [];
+      const { createIntake, createConsentRecord, updateAppointment } = twenty;
+      const upstream = new Error("합성 upstream 오류 본문");
+      twenty.createIntake = async (row) => {
+        if (failure !== "consent") throw upstream;
+        return createIntake(row);
+      };
+      twenty.createConsentRecord = async (row) => {
+        if (twenty.s.consents.length === 1) throw upstream;
+        return createConsentRecord(row);
+      };
+      twenty.updateAppointment = async (id, patch) => {
+        if (failure === "cancel-before") throw upstream;
+        await updateAppointment(id, patch);
+        if (failure === "cancel-after") throw upstream;
+      };
+      await withServer(async (base) => {
+        const d = new Date(Date.now() + 9 * 3600_000);
+        d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7 || 7));
+        const date = d.toISOString().slice(0, 10);
+        const body = {
+          name: "박철수", phone: "010-1234-5678", product: "diet-consult", method: "PHONE", date, time: "15:00", intake,
+          consents: { privacy: true, sensitive: true, marketing: true }, noticeVersion: "2026-11-02", formOpenedAt: Date.now() - 10_000,
+        };
+        const response = await postJson(base, "/api/v1/appointments", body);
+        const result = await response.json();
+        const recoveryRequired = failure.startsWith("cancel-");
+        assert.equal(response.status, 502);
+        assert.equal(result.error, recoveryRequired ? "appointment_recovery_required" : "upstream");
+        assert.ok(result.message.includes(cfg.tel));
+        const appointment = twenty.s.appointments[0];
+        assert.equal(appointment.appointmentStatus, failure === "cancel-before" ? "REQUESTED" : "CANCELLED");
+        assert.equal(appointment.slotKey, failure === "cancel-before" ? `${appointment.scheduledAt}#0` : `released:${appointment.id}`);
+        assert.equal(twenty.s.intakes.length, failure === "consent" ? 1 : 0);
+        assert.equal(twenty.s.consents.length, failure === "consent" ? 1 : 0);
+        assert.deepEqual(logs, [{ event: "appointment_recording_failed", appointmentId: appointment.id, recoveryRequired }]);
+        assert.ok(!JSON.stringify({ result, logs }).includes(upstream.message));
+        const slots = await (await fetch(`${base}/api/v1/slots?date=${date}`)).json();
+        assert.equal(slots.slots.find((s) => s.time === "15:00").available, failure !== "cancel-before");
+        if (!recoveryRequired) {
+          Object.assign(twenty, { createIntake, createConsentRecord, updateAppointment });
+          assert.equal((await postJson(base, "/api/v1/appointments", body)).status, 201);
+        }
+      }, { twenty, log: (row) => logs.push(row) });
+    });
+  }
+});
 
 test("파기: 결제하지 않은 주문과 그 문진·고객, 보유기간 지난 문진을 지운다", async () => {
   const t = fakeTwenty();
