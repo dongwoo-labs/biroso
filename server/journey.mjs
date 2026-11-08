@@ -6,6 +6,8 @@
 //   - 예정일이 오늘이거나 최근 3일 안이면 만든다(크론이 하루 빠져도 따라잡음). dedupeKey(<단계>:<사건>)로 한 번만.
 //   - 광고성 단계는 광고 수신 동의자만, 정보성 메시지는 알림 수신 거부자를 뺀다. '연락 그만'(광고·전체·여정)도 지킨다.
 //   - 아직 하지 않은 연락 업무는 사건이 바뀌면(다시 예약함, 예약 상태가 바뀜, 패키지 연장, 수신 거부) 자동 취소한다.
+//   톡톡 단계는 환자와 이어진 네이버 톡톡 대화로 안내 문구를 그 시각이 지나면 보낸다(공용 CRM counsel 서비스가 몇 초 안에 보냄).
+//   이어진 대화가 없거나 고객이 나간 대화면 직원 연락 업무(전화)로 남긴다. 하루 지난 것까지만 따라잡는다.
 // 판단은 plan()이 하고(테스트), runJourneys()는 Twenty에서 읽고 쓴다.
 
 const DAY = 86_400_000;
@@ -36,11 +38,12 @@ const hm = (d) => new Date(new Date(d).getTime() + KST).toISOString().slice(11, 
 export function eventsOf(rule, d) {
   const out = [];
   const push = (personId, sourceId, date, since, vars = {}) =>
-    personId && date && out.push({ key: `${rule.id}:${sourceId}`, sourceId, personId, date, since: since ?? `${date}T00:00:00+09:00`, vars: { "날짜": dayLabel(date), ...vars } });
+    personId && date && out.push({ key: `${rule.id}:${sourceId}`, sourceId, personId, date, since: since ?? `${date}T00:00:00+09:00`, vars: { 날짜: dayLabel(date), ...vars } });
   const apptsOf = new Map();
   for (const a of d.appointments) apptsOf.set(a.customerId, [...(apptsOf.get(a.customerId) ?? []), a]);
   // 사건 뒤에 다시 잡은 예약이 있으면 그 사건으로는 연락하지 않는다
-  const rebooked = (personId, after, exceptId) => (apptsOf.get(personId) ?? []).some((a) => a.id !== exceptId && UPCOMING.includes(a.appointmentStatus) && a.scheduledAt && new Date(a.scheduledAt) > new Date(after));
+  const rebooked = (personId, after, exceptId) =>
+    (apptsOf.get(personId) ?? []).some((a) => a.id !== exceptId && UPCOMING.includes(a.appointmentStatus) && a.scheduledAt && new Date(a.scheduledAt) > new Date(after));
   switch (rule.triggerEvent) {
     case "RX_START":
     case "RX_MID":
@@ -51,8 +54,22 @@ export function eventsOf(rule, d) {
         push(rx.customerId, rx.id, { RX_START: x.start, RX_MID: x.mid, RX_END: x.end }[rule.triggerEvent], rx.createdAt);
       }
       break;
-    case "VISIT_DONE":
-      for (const a of d.appointments) if (a.appointmentStatus === "DONE") push(a.customerId, a.id, kstDate(a.paidAt || a.scheduledAt), a.paidAt || a.scheduledAt);
+    case "VISIT_DONE": {
+      // 진료 항목을 고른 단계는 그 항목이 있는 내원에만(예: 약침 뒤 안내)
+      const only = Array.isArray(rule.treatmentFilter) ? rule.treatmentFilter : [];
+      for (const a of d.appointments) {
+        if (a.appointmentStatus !== "DONE") continue;
+        if (only.length && !(a.treatments ?? []).some((t) => only.includes(t))) continue;
+        push(a.customerId, a.id, kstDate(a.paidAt || a.scheduledAt), a.paidAt || a.scheduledAt);
+      }
+      break;
+    }
+    // 한약 발송(주문에 송장을 넣은 날)
+    case "SHIPPED":
+      for (const o of d.orders ?? []) {
+        if (!o.shippedAt || !o.trackingNo) continue;
+        push(o.customerId, o.id, kstDate(o.shippedAt), o.shippedAt, { 택배사: CARRIER[o.carrier] ?? "", 송장: String(o.trackingNo) });
+      }
       break;
     case "NO_SHOW":
     case "CANCELLED":
@@ -79,7 +96,7 @@ export function eventsOf(rule, d) {
     case "APPT":
       for (const a of d.appointments) {
         if (!["REQUESTED", "CONFIRMED"].includes(a.appointmentStatus) || !a.scheduledAt) continue;
-        push(a.customerId, `${a.id}@${new Date(a.scheduledAt).toISOString()}`, kstDate(a.scheduledAt), a.createdAt, { "시간": hm(a.scheduledAt) });
+        push(a.customerId, `${a.id}@${new Date(a.scheduledAt).toISOString()}`, kstDate(a.scheduledAt), a.createdAt, { 시간: hm(a.scheduledAt) });
       }
       break;
   }
@@ -91,10 +108,37 @@ export function allowed(rule, p) {
   if (!p) return false;
   if (p.contactStop === "ALL") return false;
   if (rule.isAd && (!p.consentMarketing || p.contactStop === "AD")) return false;
-  if (!rule.isAd && rule.channel === "MESSAGE" && p.consentNotice === false) return false;
-  const stopped = String(p.stoppedJourneys ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (!rule.isAd && ["MESSAGE", "TALKTALK"].includes(rule.channel) && p.consentNotice === false) return false;
+  const stopped = String(p.stoppedJourneys ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
   return !stopped.includes(rule.journey);
 }
+
+const CARRIER = {
+  CJ: "CJ대한통운",
+  EPOST: "우체국택배",
+  HANJIN: "한진택배",
+  LOTTE: "롯데택배",
+  LOGEN: "로젠택배",
+  KDEXP: "경동택배",
+  DAESIN: "대신택배",
+  ILYANG: "일양로지스",
+  CHUNIL: "천일택배",
+  KUNYOUNG: "건영택배",
+  HDEXP: "합동택배",
+};
+// 안내 문구의 #{변수}를 채운다(모르는 변수는 빈칸)
+export const fill = (text, vars) =>
+  String(text ?? "")
+    .replace(/#\{([^}]+)\}/g, (_, k) => vars[k] ?? "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+// 환자와 이어진, 고객이 나가지 않은 네이버 톡톡 대화(최근 것)
+const talkThread = (threads, personId) =>
+  threads.filter((t) => t.customerId === personId && t.channel === "NAVER_TALK" && !t.customerLeft).sort((a, b) => String(b.lastMessageAt ?? "").localeCompare(String(a.lastMessageAt ?? "")))[0] ??
+  null;
 
 const fullName = (p) => [p?.name?.lastName, p?.name?.firstName].filter(Boolean).join("") || "환자";
 
@@ -103,10 +147,12 @@ export function plan(d, now = new Date()) {
   const today = kstDate(now);
   const people = new Map(d.people.map((p) => [p.id, p]));
   const messages = d.messages ?? [];
-  const have = new Set([...d.tasks, ...messages].map((t) => t.dedupeKey).filter(Boolean));
+  const talks = d.talks ?? [];
+  const have = new Set([...d.tasks, ...messages, ...talks].map((t) => t.dedupeKey).filter(Boolean));
   const valid = new Set();
   const create = [];
   const send = [];
+  const talk = [];
   for (const rule of d.rules) {
     if (!rule.active) continue;
     const from = rule.activeFrom ? new Date(rule.activeFrom) : null;
@@ -117,8 +163,22 @@ export function plan(d, now = new Date()) {
       valid.add(e.key);
       const due = addDays(e.date, Number(rule.offsetDays) || 0);
       const auto = rule.channel === "MESSAGE" && rule.messageTemplateId;
-      if (due > today || due < addDays(today, auto ? 0 : -CATCH_UP_DAYS) || have.has(e.key)) continue;
+      const thread = rule.channel === "TALKTALK" ? talkThread(d.threads ?? [], e.personId) : null;
+      if (due > today || due < addDays(today, auto ? 0 : thread ? -1 : -CATCH_UP_DAYS) || have.has(e.key)) continue;
+      // 톡톡은 그 시각이 지난 뒤에 보낸다(다음 실행 때 다시 본다)
+      if (thread && new Date(at(due, rule.timeOfDay)) > now) continue;
       have.add(e.key);
+      if (thread) {
+        talk.push({
+          counselThreadId: thread.id,
+          msgDirection: "OUT",
+          sendStatus: "QUEUED",
+          sentFrom: "JOURNEY",
+          messageText: fill(rule.script, { 고객: fullName(p), 한의원: d.clinicName ?? "", ...e.vars }),
+          dedupeKey: e.key,
+        });
+        continue;
+      }
       if (auto) {
         send.push({
           name: `${rule.journey ?? "메시지"} · ${fullName(p)}`,
@@ -127,7 +187,7 @@ export function plan(d, now = new Date()) {
           isAd: Boolean(rule.isAd),
           msgStatus: "QUEUED",
           scheduledAt: at(due, rule.timeOfDay),
-          variables: { "고객": fullName(p), ...e.vars },
+          variables: { 고객: fullName(p), ...e.vars },
           dedupeKey: e.key,
         });
         continue;
@@ -136,7 +196,7 @@ export function plan(d, now = new Date()) {
         name: `${rule.journey ?? "연락"} · ${fullName(p)}`,
         customerId: e.personId,
         contactRuleId: rule.id,
-        channel: rule.channel ?? "CALL",
+        channel: rule.channel === "TALKTALK" ? "CALL" : (rule.channel ?? "CALL"),
         isAd: Boolean(rule.isAd),
         dueAt: at(due, rule.timeOfDay),
         taskStatus: "TODO",
@@ -166,14 +226,18 @@ export function plan(d, now = new Date()) {
     const reason = !rule.active ? "연락 단계를 껐어요" : !allowed(rule, people.get(m.customerId)) ? "연락 그만·수신 거부" : "예약·처방·패키지가 바뀌었어요";
     unsend.push({ id: m.id, patch: { msgStatus: "CANCELLED", error: reason, doneAt: now.toISOString() } });
   }
-  return { create, cancel, send, unsend };
+  return { create, cancel, send, unsend, talk };
 }
 
 export async function runJourneys({ twenty, log = () => {} }, now = new Date()) {
   const d = await twenty.journeyData();
-  const { create, cancel, send, unsend } = plan(d, now);
+  const { create, cancel, send, unsend, talk } = plan(d, now);
   let created = 0;
   let queued = 0;
+  let talked = 0;
+  for (const row of talk) {
+    if (await twenty.createCounselMessage(row)) talked++;
+  }
   for (const row of create) {
     if (await twenty.createContactTask(row)) created++;
   }
@@ -182,7 +246,7 @@ export async function runJourneys({ twenty, log = () => {} }, now = new Date()) 
   }
   for (const c of cancel) await twenty.updateContactTask(c.id, c.patch);
   for (const c of unsend) await twenty.updateMessage(c.id, c.patch);
-  const out = { created, cancelled: cancel.length, queued, unqueued: unsend.length };
+  const out = { created, cancelled: cancel.length, queued, unqueued: unsend.length, talked };
   log({ ts: now.toISOString(), event: "journeys", ...out });
   return out;
 }
