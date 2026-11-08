@@ -8,6 +8,7 @@ Twenty REST 필터 배열은 항목 사이에 공백 없이 보낸다.
 기존 선택지의 ID를 보존해 갱신한다. ID를 바꾸면 그 선택지를 쓰는 레코드 값이 초기화될 수 있다.
 """
 import json, os, sys, urllib.parse, urllib.request
+from datetime import datetime, timezone
 
 URL = os.environ.get("TWENTY_URL", "http://localhost:3000").rstrip("/")
 KEY = os.environ.get("TWENTY_API_KEY", "")
@@ -581,7 +582,7 @@ DEFAULT_SETS = [
     ("호흡기", "비염", "경혈침술·약침", "", ["ACUPUNCTURE", "PHARMACOPUNCTURE"]),
 ]
 
-# 서식 초안. 꺼 둔 채로 넣는다. 한의원이 문구를 검토·수정한 뒤 켠다(법정 서식인 진단서·소견서는 넣지 않는다).
+# 서식 초안. 켠 채로 넣는다(사용자 2026-11-08). 문구는 한의원이 검토·수정한다(법정 서식인 진단서·소견서는 넣지 않는다).
 DEFAULT_DOCS = [
     ("약침 시술 동의서", ["PHARMACOPUNCTURE"], [], False,
      "약침 시술 동의서 (초안 · 한의원 검토 후 사용)\n\n환자: #{환자} (#{성별}, #{생년월일}) 차트번호 #{차트번호}\n시술일: #{날짜}\n진단: #{진단}\n시술 내용: #{치료}\n\n"
@@ -600,7 +601,7 @@ DEFAULT_DOCS = [
 
 
 def seed_sets_and_docs():
-    """묶음처방 예시와 서식 초안 중 같은 이름이 없는 것만 넣는다(서식은 꺼 둠)."""
+    """묶음처방 예시와 서식 초안 중 같은 이름이 없는 것만 넣는다(서식은 켜 둠)."""
     have = {r["name"] for r in rest("GET", "/treatmentSets?limit=200")["data"]["treatmentSets"]}
     added = 0
     for i, (group, name, treat, rx, items) in enumerate(DEFAULT_SETS):
@@ -613,14 +614,14 @@ def seed_sets_and_docs():
     for i, (name, items, ins, first, body) in enumerate(DEFAULT_DOCS):
         if name in have:
             continue
-        rest("POST", "/docTemplates", {"name": name, "treatments": items, "insuranceTypes": ins, "firstVisitOnly": first, "body": body, "active": False, "sortOrder": i})
+        rest("POST", "/docTemplates", {"name": name, "treatments": items, "insuranceTypes": ins, "firstVisitOnly": first, "body": body, "active": True, "sortOrder": i})
         added_d += 1
     if added or added_d:
-        print("  묶음처방 예시", added, "개, 서식 초안", added_d, "개(꺼 둠)")
+        print("  묶음처방 예시", added, "개, 서식 초안", added_d, "개(켜 둠, 문구는 한의원이 검토)")
 
 
 def seed_contact_rules():
-    """기본 단계 중 없는 것(같은 여정·기준 사건)만 꺼 둔 채로 넣는다. 문구 기본값도 같은 이름이 없을 때만 넣고, 같은 이름의 단계에 건다."""
+    """기본 단계 중 없는 것(같은 여정·기준 사건)만 넣는다(톡톡 안내만 켜고 나머지는 꺼 둔다). 문구 기본값도 같은 이름이 없을 때만 넣고, 같은 이름의 단계에 건다."""
     templates = {t["name"]: t["id"] for t in rest("GET", "/messageTemplates?limit=200")["data"]["messageTemplates"]}
     added_t = 0
     for i, (name, channel, ad, body) in enumerate(DEFAULT_TEMPLATES):
@@ -633,14 +634,16 @@ def seed_contact_rules():
         if (journey, event) in have:
             continue
         tpl = templates.get(journey) if channel == "MESSAGE" else None
+        # 톡톡 치료 후 안내는 켠 채로 넣는다(사용자 2026-11-08 "기본으로 켜줘"). 켠 시각 뒤의 내원부터
+        on = {"active": True, "activeFrom": datetime.now(timezone.utc).isoformat()} if channel == "TALKTALK" else {"active": False}
         name = f"{journey} · {script.split('.')[0].replace('#{고객}님, ', '')[:20]}"
         rest("POST", "/contactRules", {"name": name, "journey": journey, "triggerEvent": event, "offsetDays": days,
-                                        "timeOfDay": time, "channel": channel, "isAd": ad, "script": script, "active": False, "sortOrder": i,
+                                        "timeOfDay": time, "channel": channel, "isAd": ad, "script": script, "sortOrder": i, **on,
                                         **({"treatmentFilter": rest_[0]} if rest_ else {}),
                                         **({"messageTemplateId": tpl} if tpl else {})})
         added += 1
     if added or added_t:
-        print("  연락 여정 기본값", added, "단계, 문구", added_t, "개(꺼 둠)")
+        print("  연락 여정 기본값", added, "단계(톡톡 안내만 켜 둠), 문구", added_t, "개")
 
 
 def fix_inverse_names():
