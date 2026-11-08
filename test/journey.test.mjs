@@ -173,3 +173,15 @@ test("한약 발송 안내: 송장 넣은 주문, 택배사·송장 변수", () 
   d.people[0].consentNotice = false;
   assert.equal(plan(d, new Date("2026-11-05T01:00:00Z")).talk.length, 0);
 });
+
+test("한약 복용 첫날 안내: 받은 날 19:00 뒤 톡톡", () => {
+  const d = base();
+  d.rules = [rule("rm", { journey: "한약 복용 첫날 안내", triggerEvent: "RX_START", timeOfDay: "19:00", channel: "TALKTALK", script: "#{고객}님, 오늘부터 한약을 드세요." })];
+  d.prescriptions = [{ id: "x1", customerId: "p1", receivedOn: "2026-11-05", days: 15, createdAt: "2026-11-05T01:00:00Z" }];
+  d.threads = [{ id: "th1", customerId: "p1", channel: "NAVER_TALK" }];
+  assert.equal(plan(d, new Date("2026-11-05T09:00:00Z")).talk.length, 0); // 18:00 KST
+  assert.deepEqual(
+    plan(d, new Date("2026-11-05T10:30:00Z")).talk.map((t) => [t.counselThreadId, t.messageText, t.dedupeKey]),
+    [["th1", "김p1님, 오늘부터 한약을 드세요.", "rm:x1"]],
+  );
+});
