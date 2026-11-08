@@ -167,7 +167,7 @@ OBJECTS = [
         ("source", "SELECT", "예약 경로", {"options": APPT_SOURCES, "defaultValue": "'HOMEPAGE'"}),
         ("visitType", "SELECT", "초진·재진", {"options": opts(("NEW", "초진"), ("RETURN", "재진"))}),
         # 접수 창에서 고른다(업스트림 접수 창의 보험 구분·진료 항목). 원무 카드와 진료실 머리에 보인다.
-        ("insuranceType", "SELECT", "보험 구분", {"options": opts(("NHI", "건보"), ("AUTO", "자보"), ("GENERAL", "일반"), ("INDUSTRIAL", "산재"))}),
+        ("insuranceType", "SELECT", "보험 구분", {"options": opts(("NHI", "건보"), ("AUTO", "자보"), ("GENERAL", "일반"), ("INDUSTRIAL", "산재"), ("HERBAL_PILOT", "첩약 시범"))}),
         ("treatments", "MULTI_SELECT", "진료 항목", {"options": TREATMENT_OPTIONS}),
         # 이 내원에서 못 받고 남긴 금액. 다음 수납 창이 '지난 미수 같이 받기'로 불러오고, 받으면 0으로 돌린다.
         ("unpaidAmount", "CURRENCY", "미수", {}),
