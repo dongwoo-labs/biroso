@@ -27,7 +27,7 @@ test("복약 3일차 전화: 오늘 예정이면 만들고, 이미 있으면 다
   assert.equal(create[0].dueAt, "2026-11-05T02:00:00.000Z");
   assert.equal(create[0].customerId, "p1");
   d.tasks = [{ id: "t1", dedupeKey: "r1:x1", taskStatus: "TODO", contactRuleId: "r1", customerId: "p1" }];
-  assert.deepEqual(plan(d, now), { create: [], cancel: [], send: [], unsend: [] });
+  assert.deepEqual(plan(d, now), { create: [], cancel: [], send: [], unsend: [], talk: [] });
 });
 
 test("켜기 전에 생긴 사건은 대상이 아니고, 3일 넘게 지난 예정은 만들지 않는다", () => {
@@ -38,7 +38,10 @@ test("켜기 전에 생긴 사건은 대상이 아니고, 3일 넘게 지난 예
     { id: "new", customerId: "p2", receivedOn: "2026-11-04", days: 4, createdAt: "2026-11-04T01:00:00Z" }, // 끝 11/7 - 3 = 11/4
     { id: "late", customerId: "p2", receivedOn: "2026-11-03", days: 1, createdAt: "2026-11-03T01:00:00Z" }, // 끝 11/3 - 3 = 10/31: 3일 넘음
   ];
-  assert.deepEqual(plan(d, now).create.map((c) => c.sourceId), ["new"]);
+  assert.deepEqual(
+    plan(d, now).create.map((c) => c.sourceId),
+    ["new"],
+  );
 });
 
 test("노쇼 다음날 전화는 다시 예약하면 자동 취소", () => {
@@ -50,7 +53,10 @@ test("노쇼 다음날 전화는 다시 예약하면 자동 취소", () => {
   d.appointments.push({ id: "a2", customerId: "p1", appointmentStatus: "CONFIRMED", scheduledAt: "2026-11-10T01:00:00Z" });
   const { create, cancel } = plan(d, now);
   assert.equal(create.length, 0);
-  assert.deepEqual(cancel.map((c) => [c.id, c.patch.taskStatus, c.patch.cancelReason]), [["t1", "CANCELLED", "예약·처방·패키지가 바뀌었어요"]]);
+  assert.deepEqual(
+    cancel.map((c) => [c.id, c.patch.taskStatus, c.patch.cancelReason]),
+    [["t1", "CANCELLED", "예약·처방·패키지가 바뀌었어요"]],
+  );
 });
 
 test("광고·정보성 동의와 연락 그만하기 범위", () => {
@@ -68,7 +74,10 @@ test("광고·정보성 동의와 연락 그만하기 범위", () => {
   const d = base();
   d.rules = [rule("r3", { journey: "재내원", triggerEvent: "NO_RETURN", offsetDays: 90, isAd: true, channel: "MESSAGE" })];
   d.people = [person("p1", { lastVisitAt: "2026-08-07", consentMarketing: true }), person("p2", { lastVisitAt: "2026-06-01", consentMarketing: true })];
-  assert.deepEqual(plan(d, now).create.map((c) => c.customerId), ["p1"]); // p2는 켜기 전에 90일을 넘김
+  assert.deepEqual(
+    plan(d, now).create.map((c) => c.customerId),
+    ["p1"],
+  ); // p2는 켜기 전에 90일을 넘김
   d.tasks = [{ id: "t1", dedupeKey: "r3:p1@2026-08-07", taskStatus: "TODO", contactRuleId: "r3", customerId: "p1" }];
   d.people[0].contactStop = "AD";
   assert.equal(plan(d, now).cancel[0].patch.cancelReason, "연락 그만·수신 거부");
@@ -91,7 +100,7 @@ test("runJourneys: 중복으로 거절된 건은 세지 않는다", async () => 
   d.rules = [rule("r1", { triggerEvent: "RX_START", offsetDays: 3 })];
   d.prescriptions = [{ id: "x1", customerId: "p1", receivedOn: "2026-11-02", days: 30, createdAt: "2026-11-01T01:00:00Z" }];
   const twenty = { journeyData: async () => d, createContactTask: async () => false, updateContactTask: async () => {} };
-  assert.deepEqual(await runJourneys({ twenty }, now), { created: 0, cancelled: 0, queued: 0, unqueued: 0 });
+  assert.deepEqual(await runJourneys({ twenty }, now), { created: 0, cancelled: 0, queued: 0, unqueued: 0, talked: 0 });
 });
 
 test("예약 알림: 자동 발송 문구가 있으면 연락 업무 대신 발송을 만들고, 지난 날 것은 따라잡지 않는다", () => {
@@ -107,15 +116,60 @@ test("예약 알림: 자동 발송 문구가 있으면 연락 업무 대신 발�
   const m = r.send[0];
   assert.equal(m.dedupeKey, "r5:a1@2026-11-06T05:30:00.000Z");
   assert.equal(m.scheduledAt, "2026-11-05T09:00:00.000Z");
-  assert.deepEqual(m.variables, { "고객": "김p1", "날짜": "11/6(금)", "시간": "14:30" });
+  assert.deepEqual(m.variables, { 고객: "김p1", 날짜: "11/6(금)", 시간: "14:30" });
   assert.equal(m.messageTemplateId, "tpl");
   // 예약 시각이 바뀌면 예전 발송은 취소하고 새로 잡는다
   d.messages = [{ id: "m1", dedupeKey: m.dedupeKey, msgStatus: "QUEUED", customerId: "p1" }];
   d.appointments[0].scheduledAt = "2026-11-06T06:30:00Z";
   const r2 = plan(d, now);
-  assert.deepEqual(r2.unsend.map((u) => [u.id, u.patch.msgStatus]), [["m1", "CANCELLED"]]);
+  assert.deepEqual(
+    r2.unsend.map((u) => [u.id, u.patch.msgStatus]),
+    [["m1", "CANCELLED"]],
+  );
   assert.equal(r2.send[0].variables["시간"], "15:30");
   // 이미 보낸 건은 건드리지 않는다
   d.messages[0].msgStatus = "SENT";
   assert.equal(plan(d, now).unsend.length, 0);
+});
+
+test("톡톡 안내: 약침 내원만, 시각이 지난 뒤 이어진 톡톡 대화로 보내고 대화가 없으면 전화 업무", () => {
+  // 2026-11-05 19:00 KST
+  const evening = new Date("2026-11-05T10:00:00Z");
+  const d = base();
+  d.rules = [
+    rule("rt", { journey: "약침 후 안내", triggerEvent: "VISIT_DONE", timeOfDay: "18:00", channel: "TALKTALK", treatmentFilter: ["PHARMACOPUNCTURE"], script: "#{고객}님, 약침 뒤 붉어질 수 있어요." }),
+  ];
+  d.appointments = [
+    { id: "a1", customerId: "p1", appointmentStatus: "DONE", treatments: ["PHARMACOPUNCTURE"], paidAt: "2026-11-05T03:00:00Z", scheduledAt: "2026-11-05T02:00:00Z" },
+    { id: "a2", customerId: "p2", appointmentStatus: "DONE", treatments: ["PHARMACOPUNCTURE", "ACUPUNCTURE"], paidAt: "2026-11-05T03:00:00Z", scheduledAt: "2026-11-05T02:00:00Z" },
+    { id: "a3", customerId: "p1", appointmentStatus: "DONE", treatments: ["ACUPUNCTURE"], paidAt: "2026-11-05T04:00:00Z", scheduledAt: "2026-11-05T04:00:00Z" },
+  ];
+  d.threads = [{ id: "th1", customerId: "p1", channel: "NAVER_TALK", lastMessageAt: "2026-11-01T00:00:00Z" }];
+  // 18:00 전에는 아직 보내지 않는다(대화 없는 p2는 전화 업무로 바로)
+  const early = plan(d, new Date("2026-11-05T05:00:00Z"));
+  assert.equal(early.talk.length, 0);
+  assert.deepEqual(
+    early.create.map((c) => [c.customerId, c.channel]),
+    [["p2", "CALL"]],
+  );
+  const r = plan(d, evening);
+  assert.deepEqual(r.talk, [{ counselThreadId: "th1", msgDirection: "OUT", sendStatus: "QUEUED", sentFrom: "JOURNEY", messageText: "김p1님, 약침 뒤 붉어질 수 있어요.", dedupeKey: "rt:a1" }]);
+  d.talks = [{ dedupeKey: "rt:a1" }];
+  assert.equal(plan(d, evening).talk.length, 0);
+  // 고객이 나간 대화는 쓰지 않는다
+  d.talks = [];
+  d.threads[0].customerLeft = true;
+  assert.equal(plan(d, evening).talk.length, 0);
+});
+
+test("한약 발송 안내: 송장 넣은 주문, 택배사·송장 변수", () => {
+  const d = base();
+  d.rules = [rule("rs", { journey: "한약 발송 안내", triggerEvent: "SHIPPED", timeOfDay: "09:00", channel: "TALKTALK", script: "#{고객}님, #{택배사} #{송장} 으로 보냈어요." })];
+  d.orders = [{ id: "o1", customerId: "p1", shippedAt: "2026-11-04T23:30:00Z", carrier: "CJ", trackingNo: "123456789012" }];
+  d.threads = [{ id: "th1", customerId: "p1", channel: "NAVER_TALK" }];
+  const r = plan(d, new Date("2026-11-05T01:00:00Z"));
+  assert.equal(r.talk[0].messageText, "김p1님, CJ대한통운 123456789012 으로 보냈어요.");
+  // 알림 수신 거부자는 빼고
+  d.people[0].consentNotice = false;
+  assert.equal(plan(d, new Date("2026-11-05T01:00:00Z")).talk.length, 0);
 });

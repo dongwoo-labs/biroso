@@ -18,7 +18,10 @@ export function isOrphan(p) {
 }
 
 export class SlotTaken extends Error {
-  constructor(slotKey) { super(`예약 칸이 이미 찼습니다: ${slotKey}`); this.slotKey = slotKey; }
+  constructor(slotKey) {
+    super(`예약 칸이 이미 찼습니다: ${slotKey}`);
+    this.slotKey = slotKey;
+  }
 }
 
 const won = (c) => (c?.amountMicros == null ? null : Math.round(c.amountMicros / 1_000_000));
@@ -26,9 +29,17 @@ export const money = (n) => ({ amountMicros: Math.round(n) * 1_000_000, currency
 
 // Twenty 상품 레코드 → 가격 계산용
 export const toProduct = (p) => ({
-  id: p.id, slug: p.slug || p.id, name: p.name ?? "", kind: p.kind ?? "PAYMENT", published: Boolean(p.published), salesChannel: p.salesChannel ?? "OWN",
-  soldOut: Boolean(p.soldOut), taxFree: Boolean(p.taxFree), freeShipping: Boolean(p.freeShipping),
-  telemedicine: Boolean(p.telemedicine), inPerson: Boolean(p.inPerson),
+  id: p.id,
+  slug: p.slug || p.id,
+  name: p.name ?? "",
+  kind: p.kind ?? "PAYMENT",
+  published: Boolean(p.published),
+  salesChannel: p.salesChannel ?? "OWN",
+  soldOut: Boolean(p.soldOut),
+  taxFree: Boolean(p.taxFree),
+  freeShipping: Boolean(p.freeShipping),
+  telemedicine: Boolean(p.telemedicine),
+  inPerson: Boolean(p.inPerson),
   salePrice: won(p.salePrice) ?? won(p.regularPrice),
   // 비어 있으면 재고를 세지 않는다
   stock: typeof p.stock === "number" ? p.stock : null,
@@ -148,16 +159,35 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     // 연락 여정(server/journey.mjs): 판단에 필요한 레코드를 모두 읽는다(한의원 한 곳 규모, 관계는 id만)
     async journeyData() {
       const all = (plural) => listAll(plural, "", "&depth=0");
-      const [rules, tasks, prescriptions, appointments, people, packages, messages] = await Promise.all([
-        all("contactRules"), all("contactTasks"), all("prescriptions"), all("appointments"), all("people"), all("patientPackages"),
+      const [rules, tasks, prescriptions, appointments, people, packages, messages, orders, threads, talks] = await Promise.all([
+        all("contactRules"),
+        all("contactTasks"),
+        all("prescriptions"),
+        all("appointments"),
+        all("people"),
+        all("patientPackages"),
         // 여정이 만든 발송(중복 방지 키가 있는 것)만
         listAll("messages", "dedupeKey[is]:NOT_NULL", "&depth=0"),
+        // 한약 발송 안내용(송장 넣은 주문), 톡톡 안내용(환자와 이어진 대화, 여정이 보낸 톡톡)
+        listAll("clinicOrders", "shippedAt[is]:NOT_NULL", "&depth=0").catch(() => []),
+        listAll("counselThreads", "customerId[is]:NOT_NULL", "&depth=0").catch(() => []),
+        listAll("counselMessages", "dedupeKey[is]:NOT_NULL", "&depth=0").catch(() => []),
       ]);
-      return { rules, tasks, prescriptions, appointments, people, packages, messages };
+      return { rules, tasks, prescriptions, appointments, people, packages, messages, orders, threads, talks, clinicName: process.env.CLINIC_NAME || "비로소한의원" };
     },
     async createMessage(row) {
       try {
         await call("POST", "/messages", row);
+        return true;
+      } catch (e) {
+        if (isDuplicate(e)) return false;
+        throw e;
+      }
+    },
+    // 같은 dedupeKey가 이미 있으면 false
+    async createCounselMessage(row) {
+      try {
+        await call("POST", "/counselMessages", row);
         return true;
       } catch (e) {
         if (isDuplicate(e)) return false;

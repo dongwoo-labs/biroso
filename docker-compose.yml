@@ -98,9 +98,7 @@ services:
       JOBS: |
         03:00 POST http://builder:8080/rebuild
         04:00 GET http://api:8788/v1/purge
-        07:00 GET http://api:8788/v1/journeys
-        13:00 GET http://api:8788/v1/journeys
-        19:00 GET http://api:8788/v1/journeys
+        */60 GET http://api:8788/v1/journeys
         */10 GET http://api:8788/v1/charts/seal
         05:30 GET http://api:8788/v1/charts/verify
     depends_on: [api, builder]

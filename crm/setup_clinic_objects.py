@@ -272,6 +272,25 @@ OBJECTS = [
         ("chartSection", "SELECT", "기록 칸", {"options": opts(("CHIEF_COMPLAINT", "주소"), ("HISTORY", "현병력·과거력"), ("FINDINGS", "진찰 소견"), ("DIAGNOSIS", "진단"), ("TREATMENT", "치료"), ("PRESCRIPTION_NOTE", "처방"), ("CARE_PLAN", "계획·주의"), ("CHAT", "직원 채팅"), ("COUNSEL", "고객 상담"))}),
         ("phraseText", "TEXT", "문구", {}),
     ]),
+    # 묶음처방: 진료실에서 한 번에 넣는 치료·처방 묶음(예: 자보 요추). 구분(groupName)으로 묶어 보인다.
+    # 고르면 치료·처방 칸에 글을 넣고, 진료 항목(treatments)을 내원에 더한다.
+    ("treatmentSet", "treatmentSets", "묶음처방", "묶음처방", "IconStack2", [
+        ("groupName", "TEXT", "구분", {}),
+        ("treatmentText", "TEXT", "치료", {}),
+        ("prescriptionText", "TEXT", "처방", {}),
+        ("treatments", "MULTI_SELECT", "진료 항목", {"options": TREATMENT_OPTIONS}),
+        ("sortOrder", "NUMBER", "순서", {}),
+    ]),
+    # 서식(동의서·복약 지도서 등). 진료실에서 진료 항목·보험 구분이 맞으면 바로 열어 인쇄한다.
+    # 본문 변수: #{환자} #{생년월일} #{성별} #{차트번호} #{날짜} #{진단} #{치료} #{처방} #{한의원} #{원장}
+    ("docTemplate", "docTemplates", "서식", "서식", "IconFileText", [
+        ("treatments", "MULTI_SELECT", "진료 항목(이 중 하나라도)", {"options": TREATMENT_OPTIONS}),
+        ("insuranceTypes", "MULTI_SELECT", "보험 구분(이 중 하나라도)", {"options": opts(("NHI", "건보"), ("AUTO", "자보"), ("GENERAL", "일반"), ("INDUSTRIAL", "산재"), ("HERBAL_PILOT", "첩약 시범"))}),
+        ("firstVisitOnly", "BOOLEAN", "초진만", {"defaultValue": False}),
+        ("body", "TEXT", "본문", {}),
+        ("active", "BOOLEAN", "사용", {"defaultValue": False}),
+        ("sortOrder", "NUMBER", "순서", {}),
+    ]),
     # 직원 채팅(업무 화면 상단 말풍선). room = "all"(전체방) 또는 "dm:<직원 id>:<직원 id>"(1:1, id 정렬).
     # 보낸 사람은 Twenty createdBy(직원 로그인)로 본다. 환자를 붙이면 customer에 건다(누르면 환자 360).
     # 1:1도 이 객체를 읽을 수 있는 역할이면 Twenty에서 볼 수 있다(행 단위 권한 없음) — README '직원 채팅'.
@@ -306,9 +325,11 @@ OBJECTS = [
         ("messageText", "TEXT", "내용", {}),
         ("imageUrl", "TEXT", "사진 주소", {}),
         ("sendStatus", "SELECT", "보낸 상태", {"options": opts(("QUEUED", "대기"), ("SENDING", "보내는 중"), ("SENT", "보냄"), ("FAILED", "실패"))}),
-        ("sentFrom", "SELECT", "보낸 곳", {"options": opts(("CONSOLE", "업무 화면"), ("CHANNEL_APP", "채널 앱"))}),
+        ("sentFrom", "SELECT", "보낸 곳", {"options": opts(("CONSOLE", "업무 화면"), ("CHANNEL_APP", "채널 앱"), ("JOURNEY", "자동 안내"))}),
         ("sentAt", "DATE_TIME", "보낸 시각", {}),
         ("error", "TEXT", "실패 사유", {}),
+        # 연락 여정이 보낸 안내(<단계>:<사건>). 같은 안내를 두 번 보내지 않는다
+        ("dedupeKey", "TEXT", "중복 방지 키", {"isUnique": True}),
     ]),
     # 현금 시재(업무 화면 원무 › 수납현황). 고치지 않고 줄을 더한다: 시작 금액·현금 지출·마감 실사.
     # 지금 돈통 = 그날 마지막 시작 금액 + 현금 수납 − 현금 지출, 마감 실사와의 차이를 화면이 보인다. 환자 정보는 넣지 않는다.
@@ -357,12 +378,15 @@ OBJECTS = [
         ("triggerEvent", "SELECT", "기준 사건", {"options": opts(
             ("RX_START", "복약 시작"), ("RX_MID", "복약 중간"), ("RX_END", "복약 끝"), ("VISIT_DONE", "내원 완료"),
             ("FIRST_VISIT", "첫 내원"), ("NO_SHOW", "노쇼"), ("CANCELLED", "예약 취소"), ("NO_RETURN", "마지막 내원"),
-            ("PACKAGE_END", "패키지 만료"), ("APPT", "예약일"))}),
+            ("PACKAGE_END", "패키지 만료"), ("APPT", "예약일"), ("SHIPPED", "한약 발송"))}),
         ("offsetDays", "NUMBER", "며칠 뒤(앞이면 음수)", {}),
         ("timeOfDay", "TEXT", "시각(HH:MM)", {}),
-        ("channel", "SELECT", "방법", {"options": opts(("CALL", "전화"), ("MESSAGE", "메시지")), "defaultValue": "'CALL'"}),
+        # 톡톡: 환자와 이어진 네이버 톡톡 대화로 안내 문구(script)를 그대로 보낸다. 대화가 없으면 직원 연락 업무(전화)로 남긴다.
+        ("channel", "SELECT", "방법", {"options": opts(("CALL", "전화"), ("MESSAGE", "메시지"), ("TALKTALK", "톡톡")), "defaultValue": "'CALL'"}),
         ("isAd", "BOOLEAN", "광고성", {"defaultValue": False}),
         ("script", "TEXT", "안내 문구", {}),
+        # 내원 완료 단계만: 고른 진료 항목이 있는 내원에만(예: 약침 뒤 발적 안내). 비우면 모든 내원
+        ("treatmentFilter", "MULTI_SELECT", "진료 항목(내원 완료만)", {"options": TREATMENT_OPTIONS}),
         # 메시지 단계에 문구를 고르면 직원 연락 업무 대신 그 시각에 자동 발송한다(발송 내역에 남음). 비우면 직원이 보낼 연락 업무.
         ("messageTemplate", "RELATION", "자동 발송 문구", {"target": "messageTemplate", "inverse": "contactRules", "inverseLabel": "연락 단계"}),
         ("active", "BOOLEAN", "사용", {"defaultValue": False}),
@@ -532,6 +556,13 @@ DEFAULT_RULES = [
     ("재내원", "NO_RETURN", 90, "14:00", "MESSAGE", True, "마지막 내원 뒤 3개월이 지났어요. 계절 진료를 안내해요."),
     ("패키지", "PACKAGE_END", -14, "11:00", "CALL", False, "패키지 만료 2주 전이에요. 남은 횟수를 알려 드려요."),
     ("예약 알림", "APPT", -1, "18:00", "MESSAGE", False, "내일 예약을 문자로 알려 드려요."),
+    # 톡톡 안내: 안내 문구를 그대로 보낸다. 변수 #{고객} #{날짜} #{택배사} #{송장} #{한의원}
+    ("약침 후 안내", "VISIT_DONE", 0, "18:00", "TALKTALK", False,
+     "#{고객}님, 오늘 약침 치료 받으셨어요. 시술 부위가 붉어지거나 가려울 수 있어요. 긁지 말고 냉찜질해 주시고, 이틀 넘게 심하거나 붓기가 커지면 연락 주세요.", ["PHARMACOPUNCTURE"]),
+    ("추나 후 안내", "VISIT_DONE", 0, "18:00", "TALKTALK", False,
+     "#{고객}님, 오늘 추나 치료 뒤 하루 이틀 뻐근하거나 나른할 수 있어요. 무리한 운동은 피하고 따뜻하게 쉬어 주세요. 통증이 심해지면 연락 주세요.", ["CHUNA"]),
+    ("한약 발송 안내", "SHIPPED", 0, "09:00", "TALKTALK", False,
+     "#{고객}님, 한약을 보냈어요. #{택배사} #{송장} 으로 조회하실 수 있어요. 받으시면 복용법을 꼭 확인해 주세요."),
 ]
 
 # 메시지 문구 기본값. 알림톡은 카카오 검수가 필요해 처음에는 문자(SMS)로 넣고 꺼 둔다. 변수: #{고객} #{날짜} #{시간} #{한의원}
@@ -540,6 +571,52 @@ DEFAULT_TEMPLATES = [
     ("복약 중간 안내", "SMS", False, "[#{한의원}] #{고객}님, 복약 중간이에요. 식사·수분 섭취와 복용 시간을 지켜 주세요. 불편하시면 전화 주세요."),
     ("재내원 안내", "SMS", True, "[#{한의원}] #{고객}님, 마지막 내원 뒤 3개월이 지났어요. 계절 진료를 안내해 드려요."),
 ]
+
+
+# 묶음처방 예시(구분, 이름, 치료, 처방, 진료 항목). 원장님이 고쳐 쓰는 출발점이다. 같은 이름이 없을 때만 넣는다.
+DEFAULT_SETS = [
+    ("자보", "자보 요추", "경혈침술(2부위 이상)·침전기자극술·유관법(부항)·기기구술(전자뜸)\n추나요법", "", ["ACUPUNCTURE", "CHUNA"]),
+    ("자보", "자보 경추", "경혈침술(2부위 이상)·침전기자극술·유관법(부항)·기기구술(전자뜸)\n추나요법", "", ["ACUPUNCTURE", "CHUNA"]),
+    ("안면", "구안와사", "경혈침술(2부위 이상)·침전기자극술·기기구술(전자뜸)", "", ["ACUPUNCTURE"]),
+    ("호흡기", "비염", "경혈침술·약침", "", ["ACUPUNCTURE", "PHARMACOPUNCTURE"]),
+]
+
+# 서식 초안. 꺼 둔 채로 넣는다. 한의원이 문구를 검토·수정한 뒤 켠다(법정 서식인 진단서·소견서는 넣지 않는다).
+DEFAULT_DOCS = [
+    ("약침 시술 동의서", ["PHARMACOPUNCTURE"], [], False,
+     "약침 시술 동의서 (초안 · 한의원 검토 후 사용)\n\n환자: #{환자} (#{성별}, #{생년월일}) 차트번호 #{차트번호}\n시술일: #{날짜}\n진단: #{진단}\n시술 내용: #{치료}\n\n"
+     "1. 약침은 한약재에서 추출·정제한 약액을 경혈 등에 주입하는 치료입니다.\n2. 시술 뒤 시술 부위의 붉어짐·가려움·부기·통증, 드물게 알레르기 반응이 생길 수 있습니다.\n"
+     "3. 이전에 약침·벌침(봉약침)·약물에 이상 반응이 있었다면 시술 전에 알려 주십시오.\n4. 이상 반응이 생기면 바로 한의원에 연락해 주십시오.\n\n"
+     "위 내용을 설명 듣고 이해했으며 시술에 동의합니다.\n\n날짜: #{날짜}    환자(또는 보호자): ____________ (서명)\n설명한 한의사: #{원장} ____________ (서명)\n#{한의원}"),
+    ("복약 지도서", ["HERBAL"], [], False,
+     "복약 지도서 (초안 · 한의원 검토 후 사용)\n\n#{환자} 님 · #{날짜}\n처방: #{처방}\n\n"
+     "1. 정해진 시간에 드시고, 따뜻하게 데워 드시면 좋습니다.\n2. 드시는 동안 술·찬 음식·자극적인 음식은 피해 주십시오.\n"
+     "3. 설사·두드러기·속쓰림 등 이상이 있으면 복용을 멈추고 연락해 주십시오.\n4. 다른 약을 함께 드시는 경우 미리 알려 주십시오.\n\n#{한의원}"),
+    ("추나요법 안내·동의서", ["CHUNA"], [], False,
+     "추나요법 안내·동의서 (초안 · 한의원 검토 후 사용)\n\n환자: #{환자} (#{성별}, #{생년월일})\n진단: #{진단}\n\n"
+     "1. 추나요법은 한의사가 손이나 신체 일부로 관절·근육을 교정하는 치료입니다.\n2. 치료 뒤 하루 이틀 뻐근함·통증이 생길 수 있습니다.\n"
+     "3. 골다공증·최근 골절·수술 이력이 있으면 미리 알려 주십시오.\n\n위 내용을 설명 듣고 치료에 동의합니다.\n\n날짜: #{날짜}    환자: ____________ (서명)\n#{한의원}"),
+]
+
+
+def seed_sets_and_docs():
+    """묶음처방 예시와 서식 초안 중 같은 이름이 없는 것만 넣는다(서식은 꺼 둠)."""
+    have = {r["name"] for r in rest("GET", "/treatmentSets?limit=200")["data"]["treatmentSets"]}
+    added = 0
+    for i, (group, name, treat, rx, items) in enumerate(DEFAULT_SETS):
+        if name in have:
+            continue
+        rest("POST", "/treatmentSets", {"name": name, "groupName": group, "treatmentText": treat, "prescriptionText": rx, "treatments": items, "sortOrder": i})
+        added += 1
+    have = {r["name"] for r in rest("GET", "/docTemplates?limit=200")["data"]["docTemplates"]}
+    added_d = 0
+    for i, (name, items, ins, first, body) in enumerate(DEFAULT_DOCS):
+        if name in have:
+            continue
+        rest("POST", "/docTemplates", {"name": name, "treatments": items, "insuranceTypes": ins, "firstVisitOnly": first, "body": body, "active": False, "sortOrder": i})
+        added_d += 1
+    if added or added_d:
+        print("  묶음처방 예시", added, "개, 서식 초안", added_d, "개(꺼 둠)")
 
 
 def seed_contact_rules():
@@ -552,12 +629,14 @@ def seed_contact_rules():
             added_t += 1
     have = {(r["journey"], r["triggerEvent"]) for r in rest("GET", "/contactRules?limit=200")["data"]["contactRules"]}
     added = 0
-    for i, (journey, event, days, time, channel, ad, script) in enumerate(DEFAULT_RULES):
+    for i, (journey, event, days, time, channel, ad, script, *rest_) in enumerate(DEFAULT_RULES):
         if (journey, event) in have:
             continue
         tpl = templates.get(journey) if channel == "MESSAGE" else None
-        rest("POST", "/contactRules", {"name": f"{journey} · {script.split('.')[0][:20]}", "journey": journey, "triggerEvent": event, "offsetDays": days,
+        name = f"{journey} · {script.split('.')[0].replace('#{고객}님, ', '')[:20]}"
+        rest("POST", "/contactRules", {"name": name, "journey": journey, "triggerEvent": event, "offsetDays": days,
                                         "timeOfDay": time, "channel": channel, "isAd": ad, "script": script, "active": False, "sortOrder": i,
+                                        **({"treatmentFilter": rest_[0]} if rest_ else {}),
                                         **({"messageTemplateId": tpl} if tpl else {})})
         added += 1
     if added or added_t:
@@ -689,6 +768,7 @@ def main():
     sync_select_options(objects(detail=True))
     sync_labels(objects(detail=True))
     seed_contact_rules()
+    seed_sets_and_docs()
     print("완료")
 
 
