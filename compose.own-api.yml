@@ -8,10 +8,12 @@ services:
       CRM_BACKEND: own
       TWENTY_API_KEY: ""
       CHART_TWENTY_API_KEY: ""
+      NOTICE_VERSIONS: ${NOTICE_VERSIONS:-2026-11-02}
       CHAT_RETENTION_DAYS: ${CHAT_RETENTION_DAYS:-365}
       QUICK_CONSULT_RETENTION_DAYS: ${QUICK_CONSULT_RETENTION_DAYS:-90}
       SLOT_CAPACITY: ${SLOT_CAPACITY:-1}
 networks:
   crm-own-api:
     external: true
-    name: ${CRM_OWN_API_NETWORK:-crm_own-api}
+    # CRM 소비자가 api:3300을 사용하는 DB 네트워크에는 비로소 api를 등록하지 않는다.
+    name: ${CRM_OWN_API_NETWORK:-crm_own-api-egress}

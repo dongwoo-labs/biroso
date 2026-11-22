@@ -216,10 +216,10 @@ docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | no
 
 비로소 서버의 기본값은 `CRM_BACKEND=twenty`다. `CRM_BACKEND=own`은 팝업·휴진일·예약 시간 조회, 주문·결제·환불·예약·상담, 보유기간 파기, 연락 여정, 진료기록 봉인·검증을 [자체 CRM API](https://github.com/dongwoo-labs/crm/blob/4260c2e938ab1ba321149399d98cca27fe8c1ac4/docs/own-backend-adapters.md#사이트-업무-명령)와 처리한다. 자체 모드에서 실패해도 Twenty로 재시도하지 않는다. 정적 사이트를 빌드하는 `builder`는 기존 Twenty 연결을 유지한다. 운영에 자체 모드를 설정하려면 별도 전환 승인이 필요하다.
 
-자체 모드는 CRM API의 HTTP(S) origin인 `CRM_API_URL`과 역할이 서로 다른 토큰 3개가 필요하다. `CRM_API_TOKEN`은 `website`, `CRM_API_SEAL_TOKEN`은 `sealer`, `CRM_API_PURGE_TOKEN`은 `purge` 역할이다. 봉인은 기존 `CHART_LEDGER_PATH`와 `CHART_LEDGER_KEY`를 사용한다. Compose에서 `-f docker-compose.yml -f compose.own-api.yml`을 함께 지정하면 `api`만 기존 Twenty 네트워크 대신 `CRM_OWN_API_NETWORK`(기본 `crm_own-api`)에 연결한다. `CRM_API_URL`에는 그 네트워크에서 CRM API를 가리키는 고유 주소를 지정한다(예: `http://crm-api-1:3300`). 두 스택에 모두 `api`라는 서비스 이름이 있으므로 `http://api:3300`은 피한다.
+자체 모드는 CRM API의 HTTP(S) origin인 `CRM_API_URL`과 역할이 서로 다른 토큰 3개가 필요하다. `CRM_API_TOKEN`은 `website`, `CRM_API_SEAL_TOKEN`은 `sealer`, `CRM_API_PURGE_TOKEN`은 `purge` 역할이다. 봉인은 기존 `CHART_LEDGER_PATH`와 `CHART_LEDGER_KEY`를 사용한다. Compose에서 `-f docker-compose.yml -f compose.own-api.yml`을 함께 지정하면 비로소 API만 `CRM_OWN_API_NETWORK`(기본 `crm_own-api-egress`)에 연결한다. CRM의 DB·내부 소비자 네트워크(`crm_own-api`)에는 연결하지 않는다. `CRM_API_URL`에는 CRM API를 가리키는 고유 주소를 지정한다(예: `http://crm-api-1:3300`). 두 스택에 모두 `api`라는 서비스 이름이 있으므로 `http://api:3300`은 피한다.
 
 - 자체 주문은 CRM이 계산한 가격을 사용한다. 결제 선점 때 재고가 부족하면 PG 승인 전에 장바구니 확인을 안내한다.
-- 자체 환불은 요청마다 `Idempotency-Key`가 필요하다. 같은 요청을 다시 확인할 때는 키와 본문을 바꾸지 않는다. PG 결과가 불명확하면 추가 승인·환불·자동 취소를 호출하지 않는다. PG와 CRM 기록을 대조한 뒤 처리한다.
+- 자체 환불은 요청마다 `Idempotency-Key`가 필요하다. 같은 키와 본문을 다시 보내도 PG를 다시 호출하지 않으며, 이미 시작한 환불의 완료 여부는 이 응답만으로 알 수 없다. PG 결과가 불명확하거나 PG와 CRM 잔액이 다르면 선점을 유지한다. PG와 CRM 기록을 대조한 뒤 처리한다.
 - 자체 톡톡은 안내문 대신 필요한 변수를 CRM에 보낸다. CRM이 문구를 만든다. 계약 형식에 맞지 않는 송장(예: 쉼표로 구분한 여러 송장)은 자르지 않고 전화 업무로 남긴다. Twenty의 톡톡 문구와 송장 처리는 바뀌지 않는다.
 
 ### 격리 시험

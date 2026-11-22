@@ -231,6 +231,19 @@ test("비로소 실제 프로세스 → 자체 CRM → PostgreSQL", { timeout: 4
       assert.deepEqual([closed.orderStatus, closed.refunded, closed.stock], ["REFUNDED", 10000, 0]);
     });
 
+    await t.test("가짜 PG에만 기존 환불이 있어 잔액이 다르면 CRM은 선점을 유지한다", async () => {
+      const sale = await order("manual-cancel", "0106");
+      assert.equal((await sale.callback()).pathname, "/order/complete/");
+      sale.tx.balance = 7000;
+      const r = await sale.refund("after-manual-cancel", 7000);
+      assert.deepEqual([r.status, r.body.error], [409, "refund_reconciliation_required"]);
+      assert.deepEqual(sale.calls().map(({ op }) => op), ["approve", "cancel"]);
+      assert.equal(sale.tx.balance, 0);
+      const current = await sale.state();
+      assert.deepEqual([current.orderStatus, current.refunded], ["PAID", 0]);
+      assert.deepEqual((await db.query(`SELECT status FROM biroso.refunds WHERE order_id=$1`, [current.id])).rows, [{ status: "PENDING" }]);
+    });
+
     await t.test("결제 직전 재고 소진: PG 호출 0건", async () => {
       const sale = await order("sold-before-pay", "0102");
       await db.query(`UPDATE biroso.products SET stock=0 WHERE slug='sold-before-pay'`);

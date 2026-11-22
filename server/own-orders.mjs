@@ -6,6 +6,8 @@ import { validCommandKey } from "./own-crm.mjs";
 import { toConsentRecords, toIntake, toNewPerson } from "./schema.mjs";
 
 const isWon = (amount) => Number.isSafeInteger(amount) && amount >= 0;
+const currencyWon = (value) => value?.currencyCode === "KRW" && Number.isSafeInteger(value.amountMicros)
+  ? Math.round(value.amountMicros / 1_000_000) : NaN;
 const isOrderNo = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);
 const isId = (value) => typeof value === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 
@@ -48,6 +50,11 @@ export async function completeOwnPayment(form, { cfg, crm, nicepay, log = () => 
   if (!order || !isId(order.id)) return fail("주문을 찾지 못했어요.");
   if (order.orderStatus !== "PENDING") return order.pgTid === tid ? complete() : fail("이미 처리된 주문이에요.");
 
+  // start 재생 응답은 과거 상태다. 같은 거래가 이미 기록됐는지 CRM만 다시 읽는다.
+  const readSettled = async () => {
+    const latest = await crm.findOrder(orderNo).catch(() => null);
+    return latest?.id === order.id && latest.orderStatus !== "PENDING" && latest.pgTid === tid ? complete() : reconcile("start");
+  };
   const path = `orders/${order.id}/payment`;
   const key = createHash("sha256").update(tid).digest("hex");
   let attempt;
@@ -56,8 +63,10 @@ export async function completeOwnPayment(form, { cfg, crm, nicepay, log = () => 
   } catch (error) {
     if (error.code === "amount_mismatch") return fail("결제 금액이 주문과 달라요. 다시 주문해 주세요.");
     if (error.code === "cart_changed") return fail("상품이나 재고가 바뀌었어요. 장바구니를 다시 확인해 주세요.");
+    if (error.code === "payment_in_progress") return readSettled();
     return reconcile("start");
   }
+  if (attempt.executePg === false && attempt.orderId === order.id) return readSettled();
   if (attempt.executePg !== true || attempt.orderId !== order.id || attempt.orderStatus !== "PENDING") return reconcile("start");
   let paid;
   try {
@@ -107,11 +116,21 @@ export async function refundOwnOrder(body, key, { cfg, crm, nicepay, log = () =>
     throw error;
   }
   if (reservation.orderId !== order.id) throw reconcile("reserve");
-  if (reservation.executePg === false && reservation.refundId === null && reservation.orderStatus === "CANCELLED") return { orderNo, refunded: 0 };
+  if (reservation.executePg === false) {
+    if (reservation.refundId === null && reservation.orderStatus === "CANCELLED") return { orderNo, refunded: 0 };
+    throw new Rejected(409, "refund_reconciliation_required", `이 요청은 결제사에 다시 보내지 않았어요. 완료 여부는 ${cfg.tel}로 확인해 주세요.`);
+  }
   const { refundId, amount: reserved, taxFreeAmount, fullCancel } = reservation;
   if (reservation.executePg !== true || !isId(refundId) || !validCommandKey(order.pgTid) || !isWon(reserved) || reserved === 0 ||
       (amount !== undefined && reserved !== amount) || !isWon(taxFreeAmount) || taxFreeAmount > reserved ||
       typeof fullCancel !== "boolean") throw reconcile("reserve");
+  // 선점 전에 끝난 다른 환불이 있을 수 있다. 선점 후 읽은 CRM 누계로 비교한다.
+  const current = await crm.findOrder(orderNo).catch(() => null);
+  const total = currencyWon(current?.totalAmount);
+  const refunded = current?.refundedAmount == null ? 0 : currencyWon(current.refundedAmount);
+  const expectedBalance = total - refunded - reserved;
+  if (current?.id !== order.id || current.pgTid !== order.pgTid || !isWon(total) || !isWon(refunded) ||
+      !isWon(expectedBalance) || (fullCancel && expectedBalance !== 0)) throw reconcile("balance_before");
   let cancelled;
   try {
     // 부분 취소에는 PG에서 중복되지 않는 취소 요청 번호를 쓴다. 원거래는 tid로 지정한다.
@@ -123,6 +142,7 @@ export async function refundOwnOrder(body, key, { cfg, crm, nicepay, log = () =>
     catch { throw reconcile("record_decline"); }
     throw new Rejected(409, "refund_declined", "결제사가 환불 요청을 거절했어요.");
   }
+  if (cancelled.balanceAmt !== expectedBalance) throw reconcile("balance_after");
   try {
     const result = await crm.command(`${path}/complete`, refundId, { refundId });
     if (result.orderId !== order.id || result.refundId !== refundId || !isWon(result.refundedTotal) || !isWon(result.remaining)) {

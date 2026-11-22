@@ -22,7 +22,7 @@ function fixture({ orderStatus = "PENDING", pgTid, command = noResult, pg = noRe
   });
   return {
     commands, payments, logs, cfg, nicepay: { ...gateway, verify: () => true }, log: (record) => logs.push(record),
-    crm: { findOrder: async () => ({ id: orderId, orderStatus, pgTid }), command: async (path, key, body) => {
+    crm: { findOrder: async () => ({ id: orderId, orderStatus, pgTid, totalAmount: { amountMicros: 12_000_000_000, currencyCode: "KRW" } }), command: async (path, key, body) => {
       commands.push({ path, key, body: JSON.parse(JSON.stringify(body)) });
       return command(path, key, body);
     } },
@@ -66,6 +66,15 @@ test("결제는 CRM 선점이 허용한 때만 PG를 호출하고 검증된 승�
   assert.equal(pathOf(await completeOwnPayment(form, settled)), "/order/complete/");
   assert.equal(settled.commands.length, 0);
   assert.equal(settled.payments.length, 0);
+});
+
+test("승인과 경합한 콜백 재생에서 같은 TID의 기록을 확인하고 PG는 호출하지 않는다", async () => {
+  const d = fixture({ command: () => ({ ...start, executePg: false }) });
+  let reads = 0;
+  d.crm.findOrder = async () => ++reads === 1 ? { id: orderId, orderStatus: "PENDING" } : { id: orderId, orderStatus: "PAID", pgTid: tid };
+  assert.equal(pathOf(await completeOwnPayment(form, d)), "/order/complete/");
+  assert.equal(reads, 2);
+  assert.equal(d.payments.length, 0);
 });
 
 test("결제 선점 전에 재고가 바뀌면 재고 오류를 안내하고 PG는 호출하지 않는다", async () => {
@@ -117,6 +126,17 @@ test("부분 환불은 선점한 금액의 PG 확인 후 완료하며, 동일 �
   assert.equal(pending.payments.length, 0);
   await assert.rejects(refundOwnOrder(request, undefined, partial), { code: "idempotency_key_required" });
   assert.equal(partial.payments.length, 1);
+});
+
+test("PG 환불 금액은 맞아도 잔액이 CRM과 다르면 선점을 완료하지 않는다", async () => {
+  const d = fixture({ orderStatus: "PAID", pgTid: tid, command: () => reserve, pg: (b) => Response.json({
+    resultCode: "0000", orderId: b.orderId, tid, balanceAmt: 0, status: "cancelled", cancelledTid: "pg-cancel",
+    cancels: [{ tid: "pg-cancel", amount: 3000 }],
+  }) });
+  await assert.rejects(refundOwnOrder({ orderNo, amount: 3000 }, "caller-refund-1", d), { code: "refund_reconciliation_required" });
+  assert.equal(d.payments.length, 1);
+  assert.deepEqual(d.commands.map((c) => c.path.split("/").at(-1)), ["reserve"]);
+  assert.equal(d.logs[0].stage, "balance_after");
 });
 
 test("환불 응답이 불명확하거나 다른 취소 건이면 선점을 유지하고, 확정 금액 거절만 fail로 처리한다", async () => {
