@@ -27,15 +27,19 @@ export const PAY_METHOD = { card: "CARD", kakaopay: "KAKAOPAY", naverpay: "NAVER
 
 export function createNicepay({ clientId, secretKey, apiUrl }, fetchImpl = fetch) {
   const auth = `Basic ${Buffer.from(`${clientId}:${secretKey}`).toString("base64")}`;
-  async function call(path, body) {
+  async function call(path, body, own = false) {
     const res = await fetchImpl(`${apiUrl}${path}`, {
       method: "POST",
       headers: { Authorization: auth, "Content-Type": "application/json;charset=utf-8" },
       body: JSON.stringify(body),
+      ...(own ? { redirect: "error", signal: AbortSignal.timeout(15_000) } : {}),
     });
     const text = await res.text();
     let json;
     try { json = JSON.parse(text); } catch { throw new PaymentError("bad_response", `나이스페이 응답을 읽지 못했어요 (${res.status})`); }
+    if (own && (res.status >= 500 || !json || typeof json !== "object" || (!res.ok && json.resultCode === "0000"))) {
+      throw new PaymentError("unresolved", "결제사 응답을 확인할 수 없어요.");
+    }
     return json;
   }
   return {
@@ -64,6 +68,33 @@ export function createNicepay({ clientId, secretKey, apiUrl }, fetchImpl = fetch
         throw err;
       }
       return r;
+    },
+    // 자체 CRM은 PG가 확인한 결과만 기록한다. 불일치·응답 유실을 이유로 PG를 다시 부르지 않는다.
+    async approveOwn(tid, amount, orderId) {
+      const r = await call(`/v1/payments/${encodeURIComponent(tid)}`, { amount }, true);
+      if (r.orderId === orderId && r.tid === tid && r.amount === amount) {
+        const paidAt = typeof r.paidAt === "string" && /T.*(?:Z|[+-]\d{2}:?\d{2})$/.test(r.paidAt) && Number.isFinite(Date.parse(r.paidAt));
+        if (r.resultCode === "0000" && r.status === "paid" && paidAt) return r;
+        if (typeof r.resultCode === "string" && /^[A-Z0-9]{4}$/.test(r.resultCode) && r.resultCode !== "0000" && ["failed", "expired"].includes(r.status)) {
+          throw new PaymentError("approve_declined", "결제사가 승인을 거절했어요.");
+        }
+      }
+      throw new PaymentError("unresolved", "결제사 승인 결과를 확인할 수 없어요.");
+    },
+    async cancelOwn({ tid, orderId, reason, amount, taxFreeAmount, fullCancel }) {
+      const r = await call(`/v1/payments/${encodeURIComponent(tid)}/cancel`, {
+        orderId, reason, ...(fullCancel ? {} : { cancelAmt: amount, taxFreeAmt: taxFreeAmount }),
+      }, true);
+      if (r.orderId === orderId && r.tid === tid) {
+        if (r.resultCode === "0000" && Number.isSafeInteger(r.balanceAmt) && r.balanceAmt >= 0) {
+          if (fullCancel && r.status === "cancelled" && r.balanceAmt === 0 && r.amount === amount) return r;
+          const cancelled = r.cancelledTid && Array.isArray(r.cancels) && r.cancels.find((c) => c.tid === r.cancelledTid);
+          if (!fullCancel && ["cancelled", "partialCancelled"].includes(r.status) && cancelled?.amount === amount) return r;
+        }
+        // NICEPAY 문서의 금액·면세금액 검증 거절만 확정 실패로 본다.
+        if (["U318", "U319"].includes(r.resultCode)) throw new PaymentError("refund_declined", "결제사가 취소 금액을 거절했어요.");
+      }
+      throw new PaymentError("unresolved", "결제사 취소 결과를 확인할 수 없어요.");
     },
     // cancelAmt가 없으면 전액 취소. 부분 취소면 그중 면세 금액(taxFreeAmt)을 함께 보낸다.
     async cancel(tid, orderId, reason, cancelAmt, taxFreeAmt) {

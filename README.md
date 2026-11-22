@@ -218,6 +218,8 @@ docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | no
 
 자체 모드에는 CRM API의 origin인 `CRM_API_URL`, 비로소 `website` 역할의 `CRM_API_TOKEN`, 별도 `sealer` 역할의 `CRM_API_SEAL_TOKEN`이 필요하다. 봉인 장부에는 기존 `CHART_LEDGER_PATH`와 `CHART_LEDGER_KEY`를 쓴다. 아래 시험은 실제 장부나 키 대신 합성 차트와 임시 장부를 사용한다.
 
+업무 명령의 소비자 코드는 [CRM #65의 계약 `2769665`](https://github.com/dongwoo-labs/crm/blob/2769665573e4fc1cae33d1d7cf512b9139510856/docs/own-backend-adapters.md#사이트-업무-명령---소비자-연동-초안)에 맞춰 합성 어댑터로만 검증했다. CRM 구현과 병합을 확인하기 전에는 비로소 서버가 업무 명령 어댑터를 연결하지 않는다. 자체 모드에서 환불 경로를 열 때 같은 환불 요청에는 같은 `Idempotency-Key`를 사용해야 한다. PG 결과가 불명확하면 추가 승인·환불·자동 취소를 호출하지 않고 확인을 안내한다. 보유기간 파기는 별도 `purge` 토큰(`CRM_API_PURGE_TOKEN`)을 사용한다.
+
 ```bash
 npm ci
 npm test

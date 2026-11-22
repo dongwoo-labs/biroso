@@ -18,8 +18,9 @@ import { createTwenty } from "./twenty.mjs";
 import { createOwnWebsite, createOwnSealer } from "./own-crm.mjs";
 import { createNicepay } from "./nicepay.mjs";
 import { createOrder, completePayment, refundOrder, Rejected } from "./orders.mjs";
-import { createAppointment, getSlots, getClosures } from "./appointments.mjs";
-import { createConsult } from "./consults.mjs";
+import { createOwnOrder, completeOwnPayment, refundOwnOrder } from "./own-orders.mjs";
+import { createAppointment, createOwnAppointment, getSlots, getClosures } from "./appointments.mjs";
+import { createConsult, createOwnConsult } from "./consults.mjs";
 import { getPopups } from "./popups.mjs";
 import { runPurge } from "./purge.mjs";
 import { runJourneys } from "./journey.mjs";
@@ -49,11 +50,14 @@ async function readBody(req) {
 export function createHandler(cfg = loadConfig(), deps = {}) {
   const own = cfg.crmBackend === "own";
   const twenty = own ? createOwnWebsite(cfg.ownCrm, deps.crmFetch) : deps.twenty ?? createTwenty(cfg);
-  // 전용 명령을 붙이기 전에는 자체 CRM 모드에서 결제사 호출을 허용하지 않는다.
-  const nicepay = own ? null : deps.nicepay ?? (cfg.nicepay ? createNicepay(cfg.nicepay) : null);
+  // CRM 구현 리비전이 병합될 때까지 이 어댑터는 합성 단위 테스트에서만 주입한다.
+  const crm = own ? deps.ownBusiness : null;
+  const ownBlocked = own && !crm;
+  const nicepay = ownBlocked ? null : deps.nicepay ?? (cfg.nicepay ? createNicepay(cfg.nicepay) : null);
   const allow = createRateLimiter(cfg.rateLimitPer10Min);
   const log = deps.log ?? ((o) => console.log(JSON.stringify(o)));
   const ctxDeps = { cfg, twenty, nicepay, log };
+  const ownDeps = { cfg, crm, nicepay, log };
   // 자체 CRM은 홈페이지 자격으로 봉인하지 않는다. Twenty의 기존 키 설정은 유지한다.
   const chartTwenty = own ? createOwnSealer(cfg.ownCrm, deps.crmFetch)
     : deps.chartTwenty ?? (cfg.chartTwentyApiKey ? createTwenty({ ...cfg, twentyApiKey: cfg.chartTwentyApiKey }) : twenty);
@@ -95,7 +99,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
       if (req.method !== "POST" || !nicepay) return redirect(`${cfg.siteUrl}/order/fail/?reason=${encodeURIComponent("결제를 받을 수 없어요.")}`);
       const raw = await readBody(req).catch(() => null);
       const form = Object.fromEntries(new URLSearchParams(raw ?? ""));
-      try { return redirect(await completePayment(form, ctxDeps)); }
+      try { return redirect(await (own ? completeOwnPayment(form, ownDeps) : completePayment(form, ctxDeps))); }
       catch (e) {
         log({ ts: now.toISOString(), event: "payment_error", orderNo: form.orderId, error: e.message });
         return redirect(`${cfg.siteUrl}/order/fail/?no=${encodeURIComponent(form.orderId ?? "")}&reason=${encodeURIComponent(`결제 확인 중 문제가 생겼어요. ${cfg.tel}로 연락 주세요.`)}`);
@@ -103,8 +107,8 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
     }
     if (path === "/v1/journeys") {
       if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
-      if (own) return ownUnavailable();
-      try { return send(200, await runJourneys(ctxDeps, now)); } catch (e) { return fail(e); }
+      if (ownBlocked) return ownUnavailable();
+      try { return send(200, await runJourneys(own ? { ...ctxDeps, twenty: crm } : ctxDeps, now)); } catch (e) { return fail(e); }
     }
     if (path === "/v1/charts/seal" || path === "/v1/charts/verify") {
       if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
@@ -112,16 +116,21 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
     }
     if (path === "/v1/purge") {
       if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
-      if (own) return ownUnavailable();
-      try { return send(200, await runPurge(ctxDeps, now)); } catch (e) { return fail(e); }
+      if (ownBlocked) return ownUnavailable();
+      try {
+        if (!own) return send(200, await runPurge(ctxDeps, now));
+        const counts = await crm.purgeRetention(cfg);
+        log({ ts: now.toISOString(), event: "purge", ...counts });
+        return send(200, counts);
+      } catch (e) { return fail(e); }
     }
     if (path === "/v1/orders/refund") {
       if (!bearer(cfg.adminSecret)) return send(401, { error: "unauthorized" });
-      if (own) return ownUnavailable();
+      if (ownBlocked) return ownUnavailable();
       if (!nicepay) return send(401, { error: "unauthorized" });
       try {
         const body = JSON.parse((await readBody(req)) ?? "{}");
-        const r = await refundOrder(body, ctxDeps, now);
+        const r = await (own ? refundOwnOrder(body, req.headers["idempotency-key"], ownDeps) : refundOrder(body, ctxDeps, now));
         log({ ts: now.toISOString(), event: "order_refunded", orderNo: r.orderNo, refunded: r.refunded });
         return send(200, r);
       } catch (e) { return e instanceof SyntaxError ? send(400, { error: "bad_json" }) : fail(e); }
@@ -146,7 +155,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
       }
     }
     if (req.method !== "POST" || path === "/v1/slots" || path === "/v1/closures" || path === "/v1/popups") return send(405, { error: "method_not_allowed" });
-    if (own) return ownUnavailable();
+    if (ownBlocked) return ownUnavailable();
     if (!allow(ctx.ip)) return send(429, { error: "too_many_requests", message: `잠시 후 다시 시도해 주세요. 급하시면 ${cfg.tel}로 전화 주세요.` });
 
     let body;
@@ -158,17 +167,17 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
 
     try {
       if (path === "/v1/orders") {
-        const r = await createOrder(body, ctx, ctxDeps);
+        const r = await (own ? createOwnOrder(body, ctx, ownDeps) : createOrder(body, ctx, ctxDeps));
         // 로그에는 개인정보를 남기지 않는다
         log({ ts: now.toISOString(), event: "order_created", orderNo: r.orderNo, amount: r.amounts.total });
         return send(201, r);
       }
       if (path === "/v1/consults") {
-        const r = await createConsult(body, ctx, ctxDeps);
+        const r = await (own ? createOwnConsult(body, ctx, ownDeps) : createConsult(body, ctx, ctxDeps));
         log({ ts: now.toISOString(), event: "consult_created", consultId: r.consultId });
         return send(201, { ok: true, message: "상담 신청을 받았어요. 진료시간 안에 전화드릴게요." });
       }
-      const r = await createAppointment(body, ctx, ctxDeps);
+      const r = await (own ? createOwnAppointment(body, ctx, ownDeps) : createAppointment(body, ctx, ctxDeps));
       log({ ts: now.toISOString(), event: "appointment_created", appointmentId: r.appointmentId });
       return send(201, { ok: true, label: r.label, message: "진료 예약을 받았어요. 예약 시간에 맞춰 연락드리거나 기다릴게요." });
     } catch (e) { return fail(e); }

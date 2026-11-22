@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { test } from "node:test";
 import { loadConfig } from "../server/config.mjs";
 import { createHandler } from "../server/handler.mjs";
-import { createOwnSealer, createOwnWebsite } from "../server/own-crm.mjs";
+import { createOwnBusiness, createOwnSealer, createOwnWebsite } from "../server/own-crm.mjs";
 
 const fixture = {
   CRM_BACKEND: "own", CRM_API_URL: "http://crm.test.invalid/", CRM_API_TOKEN: "site-fixture",
@@ -70,6 +70,78 @@ test("자체 CRM 조회 실패에서 Twenty로 넘어가지 않고 오류 본문
   assert.equal(urls.length, 2);
   assert.ok(urls.every((url) => url.startsWith("http://crm.test.invalid/api/v1/biroso/rest/")));
   assert.ok(logs.every(({ error }) => error === "Own CRM 403"));
+});
+
+test("업무 명령 응답 유실은 같은 키와 바이트로 CRM만 재호출하고 재생은 PG를 열지 않는다", async () => {
+  const calls = [];
+  const { ownCrm } = loadConfig(fixture);
+  const client = createOwnBusiness(ownCrm, async (url, options) => {
+    calls.push([new URL(url).pathname, options.headers["Idempotency-Key"], options.body]);
+    if (calls.length === 1) throw new Error("lost response");
+    return Response.json({ data: { executePg: true }, replayed: true });
+  });
+  assert.deepEqual(await client.command("orders/fixture/payment/start", "same-key", { tid: "fixture", amount: 100 }), { executePg: false });
+  assert.deepEqual(calls, Array(2).fill(["/api/v1/biroso/commands/orders/fixture/payment/start", "same-key", '{"tid":"fixture","amount":100}']));
+});
+
+test("같은 키로 다른 본문을 보낸 명령의 충돌은 재시도하지 않고 원문을 노출하지 않는다", async () => {
+  let calls = 0;
+  const { ownCrm } = loadConfig(fixture);
+  const client = createOwnBusiness(ownCrm, async () => {
+    calls++;
+    return Response.json({ code: "idempotency_conflict", error: "fixture private text" }, { status: 409 });
+  });
+  await assert.rejects(client.command("orders", "fixture-key", {}), { status: 409, code: "idempotency_conflict", message: "Own CRM 409" });
+  assert.equal(calls, 1);
+});
+
+test("보유기간 파기는 별도 토큰으로 업무 명령 하나만 호출한다", async () => {
+  const bindings = [];
+  const env = { ...fixture, CRM_API_PURGE_TOKEN: "purge-fixture" };
+  const { ownCrm } = loadConfig(env);
+  const client = createOwnBusiness(ownCrm, async (url, options) => {
+    assert.equal(options.headers.Authorization === `Bearer ${env.CRM_API_PURGE_TOKEN}`, true);
+    assert.match(options.headers["Idempotency-Key"], /^[0-9a-f-]{36}$/);
+    bindings.push([new URL(url).pathname, options.method, JSON.parse(options.body)]);
+    return Response.json({ data: { counts: { orders: 1, chats: 0 } }, replayed: false });
+  });
+  assert.deepEqual(await client.purgeRetention({ pendingOrderHours: 24, chatRetentionDays: 0 }), { orders: 1, chats: 0 });
+  assert.deepEqual(bindings, [["/api/v1/biroso/commands/purge/retention", "POST", { pendingOrderHours: 24, chatRetentionDays: 0 }]]);
+  assert.throws(() => loadConfig({ ...env, CRM_API_PURGE_TOKEN: fixture.CRM_API_TOKEN }), /CRM_API_PURGE_TOKEN/);
+});
+
+test("자체 여정 조회 오류는 빈 목록으로 바꾸지 않고, 고유 키 중복만 건너뛴다", async () => {
+  const { ownCrm } = loadConfig(fixture);
+  const client = createOwnBusiness(ownCrm, async (url, { method }) => {
+    const object = new URL(url).pathname.split("/").at(-1);
+    if (method === "GET") return object === "counselThreads" ? new Response(null, { status: 403 }) : Response.json({ data: { [object]: [] } });
+    return Response.json({ error: object === "messages" ? "Duplicate record violates a unique constraint" : "Record conflicts with existing state" }, { status: 409 });
+  });
+  await assert.rejects(client.journeyData(), { status: 403 });
+  assert.equal(await client.createMessage({}), false);
+  await assert.rejects(client.createCounselMessage({}), { status: 409 });
+});
+
+test("합성 자체 어댑터 주입 시 상담과 파기 HTTP 경로가 전용 명령을 호출한다", async () => {
+  const cfg = loadConfig({ ...fixture, MIN_FILL_MS: "0" });
+  const calls = [];
+  const ownBusiness = createOwnBusiness({ ...cfg.ownCrm, purgeToken: "purge-fixture" }, async (url, options) => {
+    const path = new URL(url).pathname;
+    calls.push([path, options.method]);
+    const data = path.endsWith("/consults") ? { consultId: "fixture-id", personId: "fixture-person" } : { counts: { orders: 1 } };
+    return Response.json({ data, replayed: false });
+  });
+  await serve(createHandler(cfg, { ownBusiness, log: () => {} }), async (base) => {
+    const r = await fetch(`${base}/api/v1/consults`, { method: "POST", body: JSON.stringify({
+      name: "합성 고객", phone: "010-1234-5678", noticeVersion: cfg.noticeVersions[0], consents: { privacy: true }, formOpenedAt: Date.now() - 1000,
+    }) });
+    assert.equal(r.status, 201);
+    assert.equal((await fetch(`${base}/api/v1/purge`)).status, 401);
+    const retention = await fetch(`${base}/api/v1/purge`, { headers: { Authorization: `Bearer ${fixture.CRON_SECRET}` } });
+    assert.equal(retention.status, 200);
+    assert.deepEqual(await retention.json(), { orders: 1 });
+  });
+  assert.deepEqual(calls, [["/api/v1/biroso/commands/consults", "POST"], ["/api/v1/biroso/commands/purge/retention", "POST"]]);
 });
 
 test("자체 CRM 업무 명령이 없는 초안은 PG 및 CRM 호출 전에 막는다", async () => {
