@@ -174,6 +174,51 @@ test("한약 발송 안내: 송장 넣은 주문, 택배사·송장 변수", () 
   assert.equal(plan(d, new Date("2026-11-05T01:00:00Z")).talk.length, 0);
 });
 
+test("자체 CRM 톡톡은 허용 변수만 보내고 여러 송장은 직원 전화로 돌린다", async () => {
+  const d = base();
+  const sent = [];
+  const evening = new Date("2026-11-05T10:00:00Z");
+  d.rules = [rule("rs", { triggerEvent: "SHIPPED", timeOfDay: "09:00", channel: "TALKTALK", script: "#{고객}님, #{날짜} #{택배사} #{송장} #{한의원}" })];
+  d.orders = [{ id: "o1", customerId: "p1", shippedAt: "2026-11-04T23:30:00Z", carrier: "CJ", trackingNo: "AB-123" }];
+  d.threads = [{ id: "th1", customerId: "p1", channel: "NAVER_TALK" }];
+  const twenty = { journeyData: async () => d, createCounselMessage: async (row) => { sent.push(row); return true; } };
+  assert.equal((await runJourneys({ twenty, ownTalk: true }, evening)).talked, 1);
+  assert.deepEqual(sent, [{ counselThreadId: "th1", msgDirection: "OUT", sendStatus: "QUEUED", sentFrom: "JOURNEY", dedupeKey: "rs:o1",
+    variables: { 날짜: "11/5(목)", 택배사: "CJ대한통운", 송장: "AB-123" } }]);
+
+  d.orders[0].trackingNo = "AB-123, CD-456";
+  const own = plan(d, evening, { ownTalk: true });
+  assert.equal(own.talk.length, 0);
+  assert.equal(own.create[0].channel, "CALL");
+  assert.match(plan(d, evening).talk[0].messageText, /AB-123, CD-456/);
+});
+
+test("자체 톡톡 문구가 비면 전화로 남기고 개별 CRM 거절이 다른 업무와 취소를 막지 않는다", async () => {
+  const d = base();
+  const calls = [];
+  d.rules = [
+    rule("empty", { triggerEvent: "RX_START", channel: "TALKTALK", script: "#{시간}" }),
+    rule("talk", { triggerEvent: "RX_START", channel: "TALKTALK", script: "합성 #{고객}" }),
+    rule("off", { channel: "MESSAGE", active: false }),
+  ];
+  d.prescriptions = [{ id: "x1", customerId: "p1", receivedOn: "2026-11-05" }, { id: "x2", customerId: "p2", receivedOn: "2026-11-05" }];
+  d.threads = [{ id: "th1", customerId: "p1", channel: "NAVER_TALK" }, { id: "th2", customerId: "p2", channel: "NAVER_TALK" }];
+  d.messages = [{ id: "old", customerId: "p1", dedupeKey: "off:a", msgStatus: "QUEUED" }];
+  const twenty = {
+    journeyData: async () => d,
+    createContactTask: async ({ dedupeKey }) => { calls.push(dedupeKey); return true; },
+    updateMessage: async (id, patch) => { assert.equal(patch.msgStatus, "CANCELLED"); calls.push(id); },
+    createCounselMessage: async ({ dedupeKey }) => {
+      calls.push(dedupeKey);
+      if (dedupeKey === "talk:x1") throw Object.assign(new Error("Own CRM 403"), { status: 403 });
+      return true;
+    },
+  };
+  const result = await runJourneys({ twenty, ownTalk: true }, new Date("2026-11-05T10:00:00Z"));
+  assert.deepEqual(result, { created: 2, cancelled: 0, queued: 0, unqueued: 1, talked: 1, talkRejected: 1 });
+  assert.deepEqual(calls, ["empty:x1", "empty:x2", "old", "talk:x1", "talk:x2"]);
+});
+
 test("한약 복용 첫날 안내: 받은 날 19:00 뒤 톡톡", () => {
   const d = base();
   d.rules = [rule("rm", { journey: "한약 복용 첫날 안내", triggerEvent: "RX_START", timeOfDay: "19:00", channel: "TALKTALK", script: "#{고객}님, 오늘부터 한약을 드세요." })];

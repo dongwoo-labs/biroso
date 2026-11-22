@@ -1,13 +1,18 @@
 // 환경변수에서 설정을 읽는다. 기본값은 로컬 개발용이다.
 import clinic from "../src/data/clinic.json" with { type: "json" };
 import { alertConfig } from "./alert.mjs";
+import { ownCrmConfig } from "./own-crm.mjs";
 
 const list = (v, d) => (v ?? d).split(",").map((s) => s.trim()).filter(Boolean);
 
 export function loadConfig(env = process.env) {
   const siteUrl = (env.SITE_URL ?? "http://localhost:4321").replace(/\/$/, "");
   const clientId = env.NICEPAY_CLIENT_ID ?? "";
+  const crmBackend = env.CRM_BACKEND || "twenty";
+  if (!["twenty", "own"].includes(crmBackend)) throw new Error("CRM_BACKEND는 twenty 또는 own이어야 합니다.");
   return {
+    crmBackend,
+    ownCrm: crmBackend === "own" ? ownCrmConfig(env) : null,
     port: Number(env.PORT ?? 8788),
     twentyUrl: (env.TWENTY_URL ?? "http://localhost:3000").replace(/\/$/, ""),
     twentyApiKey: env.TWENTY_API_KEY ?? "",

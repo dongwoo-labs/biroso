@@ -8,7 +8,7 @@
 //   - 아직 하지 않은 연락 업무는 사건이 바뀌면(다시 예약함, 예약 상태가 바뀜, 패키지 연장, 수신 거부) 자동 취소한다.
 //   톡톡 단계는 환자와 이어진 네이버 톡톡 대화로 안내 문구를 그 시각이 지나면 보낸다(공용 CRM counsel 서비스가 몇 초 안에 보냄).
 //   이어진 대화가 없거나 고객이 나간 대화면 직원 연락 업무(전화)로 남긴다. 하루 지난 것까지만 따라잡는다.
-// 판단은 plan()이 하고(테스트), runJourneys()는 Twenty에서 읽고 쓴다.
+// 판단은 plan()이 하고, runJourneys()는 선택한 CRM에서 읽고 쓴다.
 
 const DAY = 86_400_000;
 const KST = 9 * 3600_000;
@@ -143,7 +143,7 @@ const talkThread = (threads, personId) =>
 const fullName = (p) => [p?.name?.lastName, p?.name?.firstName].filter(Boolean).join("") || "환자";
 
 // 만들 연락 업무·발송과 취소할 연락 업무·발송
-export function plan(d, now = new Date()) {
+export function plan(d, now = new Date(), { ownTalk = false } = {}) {
   const today = kstDate(now);
   const people = new Map(d.people.map((p) => [p.id, p]));
   const messages = d.messages ?? [];
@@ -163,7 +163,17 @@ export function plan(d, now = new Date()) {
       valid.add(e.key);
       const due = addDays(e.date, Number(rule.offsetDays) || 0);
       const auto = rule.channel === "MESSAGE" && rule.messageTemplateId;
-      const thread = rule.channel === "TALKTALK" ? talkThread(d.threads ?? [], e.personId) : null;
+      let thread = rule.channel === "TALKTALK" ? talkThread(d.threads ?? [], e.personId) : null;
+      let variables;
+      if (thread && ownTalk) {
+        const script = String(rule.script ?? "");
+        variables = Object.fromEntries(["날짜", "시간", "택배사", "송장"]
+          .filter((key) => e.vars[key] !== undefined && script.includes(`#{${key}}`))
+          .map((key) => [key, e.vars[key]]));
+        // 여러 송장 등 CRM 계약 밖의 값은 잘라 보내지 않고 직원 전화 업무로 남긴다.
+        if (!fill(script, { 고객: fullName(p), 한의원: "비로소한의원", ...variables }) ||
+            (variables.송장 !== undefined && !/^[A-Za-z0-9-]{1,40}$/.test(variables.송장))) thread = null;
+      }
       if (due > today || due < addDays(today, auto ? 0 : thread ? -1 : -CATCH_UP_DAYS) || have.has(e.key)) continue;
       // 톡톡은 그 시각이 지난 뒤에 보낸다(다음 실행 때 다시 본다)
       if (thread && new Date(at(due, rule.timeOfDay)) > now) continue;
@@ -174,7 +184,7 @@ export function plan(d, now = new Date()) {
           msgDirection: "OUT",
           sendStatus: "QUEUED",
           sentFrom: "JOURNEY",
-          messageText: fill(rule.script, { 고객: fullName(p), 한의원: d.clinicName ?? "", ...e.vars }),
+          ...(ownTalk ? { variables } : { messageText: fill(rule.script, { 고객: fullName(p), 한의원: d.clinicName ?? "", ...e.vars }) }),
           dedupeKey: e.key,
         });
         continue;
@@ -229,15 +239,24 @@ export function plan(d, now = new Date()) {
   return { create, cancel, send, unsend, talk };
 }
 
-export async function runJourneys({ twenty, log = () => {} }, now = new Date()) {
+export async function runJourneys({ twenty, log = () => {}, ownTalk = false }, now = new Date()) {
   const d = await twenty.journeyData();
-  const { create, cancel, send, unsend, talk } = plan(d, now);
+  const { create, cancel, send, unsend, talk } = plan(d, now, { ownTalk });
   let created = 0;
   let queued = 0;
   let talked = 0;
-  for (const row of talk) {
-    if (await twenty.createCounselMessage(row)) talked++;
-  }
+  let talkRejected = 0;
+  const queueTalk = async () => {
+    for (const row of talk) {
+      try { if (await twenty.createCounselMessage(row)) talked++; }
+      catch (error) {
+        // 읽은 뒤 규칙·동의가 바뀌면 CRM이 그 한 건을 거절할 수 있다.
+        if (!ownTalk || error.status !== 403) throw error;
+        talkRejected++;
+      }
+    }
+  };
+  if (!ownTalk) await queueTalk();
   for (const row of create) {
     if (await twenty.createContactTask(row)) created++;
   }
@@ -246,7 +265,8 @@ export async function runJourneys({ twenty, log = () => {} }, now = new Date()) 
   }
   for (const c of cancel) await twenty.updateContactTask(c.id, c.patch);
   for (const c of unsend) await twenty.updateMessage(c.id, c.patch);
-  const out = { created, cancelled: cancel.length, queued, unqueued: unsend.length, talked };
+  if (ownTalk) await queueTalk();
+  const out = { created, cancelled: cancel.length, queued, unqueued: unsend.length, talked, ...(talkRejected ? { talkRejected } : {}) };
   log({ ts: now.toISOString(), event: "journeys", ...out });
   return out;
 }

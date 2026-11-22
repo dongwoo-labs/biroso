@@ -46,13 +46,25 @@ export async function upsertPerson(v, phones, twenty) {
   return existing.id;
 }
 
-// 주문서 제출: 결제 대기 주문을 만들고 결제창에 넘길 값을 돌려준다
-export async function createOrder(raw, ctx, { cfg, twenty }) {
+export function prepareOrder(raw, ctx, cfg) {
   if (!cfg.nicepay) throw new Rejected(503, "payment_off", `지금은 온라인 결제를 받지 않아요. ${cfg.tel}로 전화 주시면 도와드릴게요.`);
   const { v, phones } = checkCommon(orderSchema.safeParse(raw), ctx, cfg);
   const recipientPhones = v.pickup ? null : normalizeMobile(v.recipient.phone || v.phone);
   if (!v.pickup && !recipientPhones) throw new Rejected(422, "invalid", "입력값을 확인해 주세요.", { "recipient.phone": "받는 분 휴대폰 번호를 확인해 주세요." });
+  return { v, phones, orderFields: {
+    payMethod: v.payMethod, deliveryMethod: v.pickup ? "PICKUP" : "PARCEL", consultTime: v.consultTime,
+    recipientName: v.pickup ? v.name : (v.recipient.name || v.name),
+    recipientPhone: recipientPhones ?? phones,
+    shippingAddress: v.pickup ? undefined : {
+      addressStreet1: v.recipient.address1, addressStreet2: v.recipient.address2, addressPostcode: v.recipient.zip, addressCountry: "South Korea",
+    },
+    deliveryMemo: v.recipient.memo,
+  } };
+}
 
+// 주문서 제출: 결제 대기 주문을 만들고 결제창에 넘길 값을 돌려준다
+export async function createOrder(raw, ctx, { cfg, twenty }) {
+  const { v, phones, orderFields } = prepareOrder(raw, ctx, cfg);
   let price;
   try {
     const products = await twenty.productsBySlugs([...new Set(v.items.map((i) => i.slug))]);
@@ -69,17 +81,15 @@ export async function createOrder(raw, ctx, { cfg, twenty }) {
     itemsSummary: price.itemsSummary, items: price.items,
     itemsAmount: money(price.itemsAmount), shippingFee: money(price.shippingFee),
     totalAmount: money(price.totalAmount), taxFreeAmount: money(price.taxFreeAmount),
-    payMethod: v.payMethod, deliveryMethod: v.pickup ? "PICKUP" : "PARCEL", shippingStatus: "WAITING", consultTime: v.consultTime,
-    recipientName: v.pickup ? v.name : (v.recipient.name || v.name),
-    recipientPhone: recipientPhones ?? phones,
-    shippingAddress: v.pickup ? undefined : {
-      addressStreet1: v.recipient.address1, addressStreet2: v.recipient.address2, addressPostcode: v.recipient.zip, addressCountry: "South Korea",
-    },
-    deliveryMemo: v.recipient.memo,
+    ...orderFields, shippingStatus: "WAITING",
   });
   await twenty.createIntake({ name: `${v.name} · 주문 ${orderNo}`, ...toIntake(v.intake, { customerId: personId, clinicOrderId: order.id }, cfg, ctx.now) });
   for (const row of toConsentRecords(v, personId, ctx, ["PRIVACY", "SENSITIVE", "TERMS", "DOSAGE", "MARKETING"])) await twenty.createConsentRecord(row);
 
+  return orderPaymentForm(cfg, v, phones, orderNo, price);
+}
+
+export function orderPaymentForm(cfg, v, phones, orderNo, price) {
   return {
     orderNo,
     pay: {

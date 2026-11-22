@@ -8,7 +8,8 @@ export class TwentyError extends Error {
 }
 
 // 고유값 필드(isUnique)에 같은 값이 이미 있어 거절된 경우
-export const isDuplicate = (e) => e instanceof TwentyError && [400, 409].includes(e.status) && /duplicate|unique/i.test(e.message);
+export const isDuplicate = (e) => (e?.status === 409 && e.code === "duplicate") ||
+  (e instanceof TwentyError && [400, 409].includes(e.status) && /duplicate|unique/i.test(e.message));
 
 // 파기해도 되는 고객인가: 주문·예약·문진·상담·수납·처방·패키지·연락 업무·진료기록이 하나도 없고, 차트번호가 없는(한의원 환자가 아닌) 사람.
 // 차트번호가 있는 환자는 진료기록 보존 대상이라 온라인 주문 파기와 함께 지우지 않는다.
@@ -57,6 +58,12 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     if (!res.ok) throw new TwentyError(res.status, text);
     return text ? JSON.parse(text) : {};
   }
+  return createRestOperations(call);
+}
+
+// 자체 CRM도 Twenty와 같은 REST 목록·레코드 형식을 쓴다.
+export function createRestOperations(call, { strictJourneys = false } = {}) {
+  const optionalJourney = (read) => strictJourneys ? read : read.catch(() => []);
   const q = (filter, extra = "") => `?filter=${encodeURIComponent(filter)}${extra}`;
   const quoted = (vals) => vals.map((v) => JSON.stringify(String(v))).join(",");
   async function listAll(plural, filter, extra = "") {
@@ -115,7 +122,7 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
       return (await call("POST", "/clinicOrders", row)).data.createClinicOrder;
     },
     async findOrder(orderNo) {
-      const r = await call("GET", `/clinicOrders${q(`name[eq]:"${orderNo}"`, "&limit=1")}`);
+      const r = await call("GET", `/clinicOrders${q(`name[eq]:${JSON.stringify(orderNo)}`, "&limit=1")}`);
       return r.data.clinicOrders[0] ?? null;
     },
     async updateOrder(id, patch) {
@@ -158,7 +165,9 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
 
     // 연락 여정(server/journey.mjs): 판단에 필요한 레코드를 모두 읽는다(한의원 한 곳 규모, 관계는 id만)
     async journeyData() {
-      const all = (plural) => listAll(plural, "", "&depth=0");
+      // 자체 CRM의 홈페이지 역할은 일부 여정 객체의 기본 정렬 필드(createdAt)를 읽을 수 없다.
+      const query = strictJourneys ? "&depth=0&order_by=id[AscNullsLast]" : "&depth=0";
+      const all = (plural) => listAll(plural, "", query);
       const [rules, tasks, prescriptions, appointments, people, packages, messages, orders, threads, talks] = await Promise.all([
         all("contactRules"),
         all("contactTasks"),
@@ -167,11 +176,11 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
         all("people"),
         all("patientPackages"),
         // 여정이 만든 발송(중복 방지 키가 있는 것)만
-        listAll("messages", "dedupeKey[is]:NOT_NULL", "&depth=0"),
+        listAll("messages", "dedupeKey[is]:NOT_NULL", query),
         // 한약 발송 안내용(송장 넣은 주문), 톡톡 안내용(환자와 이어진 대화, 여정이 보낸 톡톡)
-        listAll("clinicOrders", "shippedAt[is]:NOT_NULL", "&depth=0").catch(() => []),
-        listAll("counselThreads", "customerId[is]:NOT_NULL", "&depth=0").catch(() => []),
-        listAll("counselMessages", "dedupeKey[is]:NOT_NULL", "&depth=0").catch(() => []),
+        optionalJourney(listAll("clinicOrders", "shippedAt[is]:NOT_NULL", query)),
+        optionalJourney(listAll("counselThreads", "customerId[is]:NOT_NULL", query)),
+        optionalJourney(listAll("counselMessages", "dedupeKey[is]:NOT_NULL", query)),
       ]);
       return { rules, tasks, prescriptions, appointments, people, packages, messages, orders, threads, talks, clinicName: process.env.CLINIC_NAME || "비로소한의원" };
     },

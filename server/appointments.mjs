@@ -1,6 +1,7 @@
 // 진료 예약(전화 진료·한의원 진료). 원본 사이트의 '진료 예약' 상품(예약형)마다 받는다. 결제는 없다.
 
-import { appointmentSchema, toIntake, toConsentRecords } from "./schema.mjs";
+import { randomUUID } from "node:crypto";
+import { appointmentSchema, toIntake, toConsentRecords, toNewPerson } from "./schema.mjs";
 import { availableSlots, kstIso, kstDate } from "./slots.mjs";
 import { checkCommon, upsertPerson, Rejected } from "./orders.mjs";
 import { SlotTaken } from "./twenty.mjs";
@@ -28,17 +29,17 @@ async function reserveSeat(row, scheduledAt, capacity, twenty) {
 
 const nextDay = (date) => new Date(Date.parse(`${date}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
 
-async function slotsFor(date, { cfg, twenty }, now) {
+async function slotsFor(date, cfg, crm, now) {
   const from = kstIso(date, "00:00"), to = kstIso(nextDay(date), "00:00");
-  const [taken, closures] = await Promise.all([twenty.takenSlots(from, to), twenty.closures(date, date)]);
+  const [taken, closures] = await Promise.all([crm.takenSlots(from, to), crm.closures(date, date)]);
   return availableSlots(date, {
     hours: cfg.hours, closures, taken, now, minutes: cfg.slotMinutes, capacity: cfg.slotCapacity, leadHours: cfg.slotLeadHours, days: cfg.slotDays,
   });
 }
 
 // GET /v1/slots?date=YYYY-MM-DD
-export async function getSlots(date, deps, now = new Date()) {
-  return { date, slots: await slotsFor(date, deps, now) };
+export async function getSlots(date, { cfg, twenty }, now = new Date()) {
+  return { date, slots: await slotsFor(date, cfg, twenty, now) };
 }
 
 // GET /v1/closures — 앞으로 slotDays일 동안의 휴진일(달력에서 미리 막는 용도)
@@ -47,27 +48,36 @@ export async function getClosures({ cfg, twenty }, now = new Date()) {
   return { closures: await twenty.closures(from, to) };
 }
 
-export async function createAppointment(raw, ctx, deps) {
-  const { cfg, twenty } = deps;
+const invalidProduct = () => new Rejected(409, "invalid_product", "예약할 수 없는 진료예요. 페이지를 새로 고쳐 주세요.");
+const slotTaken = () => new Rejected(409, "slot_taken", "방금 그 시간이 마감됐어요. 다른 시간을 골라 주세요.", { time: "다른 시간을 골라 주세요." });
+const appointmentLabel = (v, product) => `${v.date.slice(5).replace("-", "/")} ${v.time} ${v.method === "PHONE" ? "전화" : "내원"} · ${product.name}`;
+const consentTypes = ["PRIVACY", "SENSITIVE", "MARKETING"];
+
+async function checkAppointment(raw, ctx, cfg, crm) {
   const { v, phones } = checkCommon(appointmentSchema.safeParse(raw), ctx, cfg);
-  const [product] = await twenty.productsBySlugs([v.product]);
-  if (!product || !product.published || product.kind !== "RESERVATION") throw new Rejected(409, "invalid_product", "예약할 수 없는 진료예요. 페이지를 새로 고쳐 주세요.");
+  const [product] = await crm.productsBySlugs([v.product]);
+  if (!product || !product.published || product.kind !== "RESERVATION") throw invalidProduct();
   if (v.method === "PHONE" && !product.telemedicine) throw new Rejected(422, "invalid", "이 진료는 한의원에서만 받을 수 있어요.", { method: "한의원 진료를 골라 주세요." });
   if (v.method === "VISIT" && !product.inPerson) throw new Rejected(422, "invalid", "이 진료는 전화로만 받을 수 있어요.", { method: "전화 진료를 골라 주세요." });
 
-  const slot = (await slotsFor(v.date, deps, ctx.now)).find((s) => s.time === v.time);
-  if (!slot?.available) throw new Rejected(409, "slot_taken", "방금 그 시간이 마감됐어요. 다른 시간을 골라 주세요.", { time: "다른 시간을 골라 주세요." });
+  const slot = (await slotsFor(v.date, cfg, crm, ctx.now)).find((s) => s.time === v.time);
+  if (!slot?.available) throw slotTaken();
+  return { v, phones, product };
+}
 
+export async function createAppointment(raw, ctx, deps) {
+  const { cfg, twenty } = deps;
+  const { v, phones, product } = await checkAppointment(raw, ctx, cfg, twenty);
   const personId = await upsertPerson(v, phones, twenty);
-  const label = `${v.date.slice(5).replace("-", "/")} ${v.time} ${v.method === "PHONE" ? "전화" : "내원"} · ${product.name}`;
+  const label = appointmentLabel(v, product);
   const scheduledAt = kstIso(v.date, v.time);
   const appt = await reserveSeat({
     name: label, customerId: personId, productId: product.id, method: v.method, scheduledAt, appointmentStatus: "REQUESTED",
   }, scheduledAt, cfg.slotCapacity, twenty);
-  if (!appt) throw new Rejected(409, "slot_taken", "방금 그 시간이 마감됐어요. 다른 시간을 골라 주세요.", { time: "다른 시간을 골라 주세요." });
+  if (!appt) throw slotTaken();
   try {
     await twenty.createIntake({ name: `${v.name} · 예약 ${label}`, ...toIntake(v.intake, { customerId: personId, appointmentId: appt.id }, cfg, ctx.now) });
-    for (const row of toConsentRecords(v, personId, ctx, ["PRIVACY", "SENSITIVE", "MARKETING"])) await twenty.createConsentRecord(row);
+    for (const row of toConsentRecords(v, personId, ctx, consentTypes)) await twenty.createConsentRecord(row);
   } catch {
     // 후속 저장의 응답 유실도 포함한다. 저장된 문진·동의는 보존하고 예약만 취소한다.
     let recoveryRequired = false;
@@ -81,4 +91,23 @@ export async function createAppointment(raw, ctx, deps) {
     throw new Rejected(502, "upstream", `예약을 완료하지 못했어요. ${cfg.tel}로 전화 주시면 바로 도와드릴게요.`);
   }
   return { appointmentId: appt.id, label };
+}
+
+export async function createOwnAppointment(raw, ctx, { cfg, crm }) {
+  const { v, phones, product } = await checkAppointment(raw, ctx, cfg, crm);
+  const label = appointmentLabel(v, product);
+  const body = {
+    name: label, productId: product.id, method: v.method, scheduledAt: kstIso(v.date, v.time), capacity: cfg.slotCapacity,
+    person: toNewPerson(v, phones),
+    intake: { name: `${v.name} · 예약 ${label}`, ...toIntake(v.intake, {}, cfg, ctx.now) },
+    consents: toConsentRecords(v, undefined, ctx, consentTypes).map(({ personId, ...row }) => row),
+  };
+  try {
+    const { appointmentId } = await crm.command("appointments", randomUUID(), body);
+    return { appointmentId, label };
+  } catch (e) {
+    if (e?.status === 409 && e.code === "invalid_product") throw invalidProduct();
+    if (e?.status === 409 && e.code === "slot_taken") throw slotTaken();
+    throw e;
+  }
 }

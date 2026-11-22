@@ -212,6 +212,29 @@ docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | no
 - 비급여 진료 비용: 기존 사이트의 수가표 PDF(2026-08-05 작성, 시행일 빈칸) 134개 항목을 `src/data/npay.json`에 옮겼다. 시행일과 최신 금액을 확인한다. 바뀌면 이 파일을 고친다(한약 상품 가격은 자동).
 - 개인정보 보호책임자(`clinic.json`의 `privacyOfficer`. 이메일은 기존 사이트의 clinic.biroso@gmail.com을 넣었다), 위탁 업체 목록(`src/pages/privacy.astro`).
 
+## 자체 CRM API 옵션
+
+비로소 서버의 기본값은 `CRM_BACKEND=twenty`다. `CRM_BACKEND=own`은 팝업·휴진일·예약 시간 조회, 주문·결제·환불·예약·상담, 보유기간 파기, 연락 여정, 진료기록 봉인·검증을 [자체 CRM API](https://github.com/dongwoo-labs/crm/blob/2ae26bea97a7cadd0d99bc0c407cc12a8332f284/docs/own-backend-adapters.md#사이트-업무-명령)와 처리한다. 자체 모드에서 실패해도 Twenty로 재시도하지 않는다. 정적 사이트를 빌드하는 `builder`는 기존 Twenty 연결을 유지한다. 운영에 자체 모드를 설정하려면 별도 전환 승인이 필요하다.
+
+자체 모드는 CRM API의 HTTP(S) origin인 `CRM_API_URL`과 역할이 서로 다른 토큰 3개가 필요하다. `CRM_API_TOKEN`은 `website`, `CRM_API_SEAL_TOKEN`은 `sealer`, `CRM_API_PURGE_TOKEN`은 `purge` 역할이다. 봉인은 기존 `CHART_LEDGER_PATH`와 `CHART_LEDGER_KEY`를 사용한다. Compose에서 `-f docker-compose.yml -f compose.own-api.yml`을 함께 지정하면 비로소 API만 `CRM_OWN_API_NETWORK`(기본 `crm_own-api-egress`)에 연결한다. CRM의 DB·내부 소비자 네트워크(`crm_own-api`)에는 연결하지 않는다. `CRM_API_URL`에는 CRM API를 가리키는 고유 주소를 지정한다(예: `http://crm-api-1:3300`). 두 스택에 모두 `api`라는 서비스 이름이 있으므로 `http://api:3300`은 피한다.
+
+- 자체 주문은 CRM이 계산한 가격을 사용한다. 결제 선점 때 재고가 부족하면 PG 승인 전에 장바구니 확인을 안내한다.
+- 자체 환불은 요청마다 `Idempotency-Key`가 필요하다. 같은 키와 본문을 다시 보내도 PG를 다시 호출하지 않으며, 이미 시작한 환불의 완료 여부는 이 응답만으로 알 수 없다. PG 결과가 불명확하거나 PG와 CRM 잔액이 다르면 선점을 유지한다. PG와 CRM 기록을 대조한 뒤 처리한다.
+- 자체 톡톡은 안내문 대신 필요한 변수를 CRM에 보낸다. CRM이 문구를 만든다. 계약 형식에 맞지 않는 송장(예: 쉼표로 구분한 여러 송장)은 자르지 않고 전화 업무로 남긴다. Twenty의 톡톡 문구와 송장 처리는 바뀌지 않는다.
+
+### 격리 시험
+
+```bash
+npm ci
+npm test
+CRM_CHECKOUT=/path/to/isolated-crm
+docker --context colima pull postgres:16
+docker --context colima build -t biroso-crm-test-cache "$CRM_CHECKOUT/services/api"
+CRM_API_CACHE_IMAGE=biroso-crm-test-cache bash test/own-stack.sh "$CRM_CHECKOUT"
+```
+
+시험 기준 CRM 리비전은 `2ae26bea97a7cadd0d99bc0c407cc12a8332f284`다. 캐시를 준비하면 재실행 중에는 의존성을 내려받지 않는다. 매 실행은 Colima에 별도 내부 Compose 네트워크를 만들고 비로소 서버, 자체 CRM API, PostgreSQL을 합성 데이터로 실제 실행한다. 결제와 차트 알림은 로컬 대역만 사용한다. 톡톡은 CRM 대기열까지 검사한다. 실제 Twenty·PG·채널이나 운영 장부는 호출하지 않는다.
+
 ## 개발
 
 ```bash
