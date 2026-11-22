@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import notice from "../src/data/notice.json" with { type: "json" };
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -12,10 +12,106 @@ import { test } from "node:test";
 import { kstDate, kstIso } from "../server/slots.mjs";
 
 assert.ok(process.env.BIROSO_OWN_E2E === "1" && process.env.PGHOST === "api-db" && process.env.PGDATABASE === "crm_api", "격리 Compose 스택에서만 실행한다.");
-const { provision } = await import("/app/auth.mjs");
+const { provision, editAccount } = await import("/app/auth.mjs");
+const { createApi } = await import("/app/server.mjs");
+const { siteRebuilder } = await import("/app/site-rebuild.mjs");
 const { Pool } = createRequire("/app/package.json")("pg");
 const base = "http://127.0.0.1:8788";
 const dateIn = (days) => kstDate(new Date(Date.now() + days * 86400_000));
+
+test("자체 CRM 공개 콘텐츠 빌드, 커밋 훅 재빌드와 실패 시 릴리스 유지", { timeout: 180_000 }, async () => {
+  const db = new Pool();
+  const app = new Pool({ user: "crm_api_biroso", password: process.env.CRM_API_DB_BIROSO_PASSWORD });
+  const email = "builder-e2e@example.test", origin = "http://crm-fixture.test";
+  const rebuild = siteRebuilder(process.env);
+  const writer = createApi({ pools: { biroso: app }, origins: { biroso: origin }, rebuild,
+    // Cloudflare Access 검증만 격리 표본으로 교체한다. 직원 조회, 쓰기, 커밋, 재빌드 훅은 실제 동작을 사용한다.
+    verify: { biroso: async () => email } });
+  const readPage = (file) => readFile(`/site/current/${file}`, "utf8");
+  const status = async () => {
+    const r = await fetch(new URL("/healthz", process.env.CRM_API_REBUILD_BIROSO_URL), { signal: AbortSignal.timeout(2_000) });
+    assert.equal(r.status, 200);
+    return r.json();
+  };
+  const waitForBuild = async (previous) => {
+    const deadline = Date.now() + 50_000;
+    while (Date.now() < deadline) {
+      const { last, building } = await status();
+      if (!building && last && last.at !== previous?.at) return last;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    assert.fail("새 빌드 결과를 확인하지 못했다.");
+  };
+  writer.listen(0, "127.0.0.1");
+  try {
+    await once(writer, "listening");
+    const builderId = await provision(db, "biroso", { role: "builder", secret: process.env.CRM_API_BUILDER_TOKEN });
+    await provision(db, "biroso", { role: "operations", email, name: { firstName: "합성 운영" } });
+    await db.query(`INSERT INTO biroso.products(name,slug,kind,published,"salePriceAmountMicros","salePriceCurrencyCode") VALUES
+      ('빌더 공개 예약','builder-reservation','RESERVATION',true,12345000000,'KRW'),
+      ('빌더 비공개 상품','builder-draft','PAYMENT',false,100000000,'KRW')`);
+    await db.query(`INSERT INTO biroso."clinicEvents"(name,slug,published) VALUES ('빌더 공개 행사','builder-event',true)`);
+    await db.query(`INSERT INTO biroso.posts(name,slug,board,published,body)
+      VALUES ('빌더 공개 글','builder-post','NEWS',true,jsonb_build_object('markdown',$1::text))`,
+    ["**공개 본문**\n\n<img src='/media/example.png' alt='합성 그림' onerror=''>"]);
+    await db.query(`INSERT INTO biroso.products(name,slug,kind,published,"salePriceAmountMicros","salePriceCurrencyCode","regularPriceAmountMicros","regularPriceCurrencyCode")
+      VALUES ('빌더 결제 불가','builder-zero-sale','PAYMENT',true,0,'KRW',30000000000,'KRW'),
+             ('빌더 공개 결제','builder-payment','PAYMENT',true,NULL,NULL,12345000000,'KRW')`);
+    await db.query(`INSERT INTO biroso.closures(name,date) VALUES ('빌더 휴진','2099-11-18')`);
+    const { rows: [{ id }] } = await db.query(`INSERT INTO biroso.faqs(name,answer,published,"sortOrder")
+      VALUES ('빌더 공개 질문','빌더 첫 답변',true,0) RETURNING id`);
+    await db.query(`INSERT INTO biroso.faqs(name,answer,published,"sortOrder")
+      SELECT '빌더 질문 ' || n,'빌더 페이지 시험',true,n FROM generate_series(1,60) AS n`);
+    await db.query(`INSERT INTO biroso.faqs(name,answer,published) VALUES ('빌더 비공개 질문','노출 금지',false)`);
+    assert.equal(await readPage("index.html"), "Twenty 격리 표본");
+    assert.equal((await status()).last, null);
+
+    // 기존 사이트 볼륨에서는 전환 시 첫 빌드 요청이 필요하다.
+    await rebuild("biroso");
+    const first = await waitForBuild(null);
+    assert.equal(first.ok, true);
+    const faq = await readPage("faq/index.html");
+    assert.ok(faq.includes("빌더 첫 답변") && faq.includes("빌더 질문 60") && !faq.includes("빌더 비공개 질문"));
+    const home = await readPage("index.html");
+    for (const title of ["빌더 공개 예약", "빌더 공개 행사"]) assert.ok(home.includes(title), title);
+    const post = await readPage("board/category-22/rvt6q7qczdwrm2k35srqgem9/builder-post/index.html");
+    assert.match(post, /빌더 공개 글/);
+    assert.match(post, /<strong>공개 본문<\/strong>/);
+    assert.match(post, /src="\/media\/example\.png" alt="합성 그림"/);
+    assert.doesNotMatch(post, /onerror=/);
+    const payment = await readPage("telemedicine/builder-zero-sale/index.html");
+    assert.match(payment, /data-add disabled/);
+    assert.match(await readPage("telemedicine/builder-payment/index.html"), /12,345원/);
+    const denied = await fetch("http://crm-own-api:3300/api/v1/biroso/rest/people", {
+      headers: { Authorization: `Bearer ${process.env.CRM_API_BUILDER_TOKEN}` },
+    });
+    assert.equal(denied.status, 403);
+    await denied.body.cancel();
+    const reservation = await readPage("telemedicine/builder-reservation/index.html");
+    assert.match(reservation, /data-closures="[^"]*2099-11-18/);
+    await assert.rejects(readPage("telemedicine/builder-draft/index.html"), { code: "ENOENT" });
+
+    const response = await fetch(`http://127.0.0.1:${writer.address().port}/api/v1/biroso/rest/faqs/${id}`, {
+      method: "PATCH", headers: { Origin: origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ answer: "빌더 커밋 뒤 답변" }),
+    });
+    assert.equal(response.status, 200);
+    await response.body.cancel();
+    const second = await waitForBuild(first);
+    assert.equal(second.ok, true);
+    assert.notEqual(second.release, first.release);
+    assert.ok((await readPage("faq/index.html")).includes("빌더 커밋 뒤 답변"));
+
+    await editAccount(db, "biroso", builderId, "stop");
+    await rebuild("biroso");
+    assert.equal((await waitForBuild(second)).ok, false);
+    assert.equal(await readlink("/site/current"), `releases/${second.release}`);
+    assert.ok((await readPage("faq/index.html")).includes("빌더 커밋 뒤 답변"));
+  } finally {
+    writer.close();
+    await Promise.all([db.end(), app.end()]);
+  }
+});
 
 async function fixture(db, websiteToken, sealToken) {
   await provision(db, "biroso", { role: "website", secret: websiteToken });
@@ -116,6 +212,10 @@ test("비로소 실제 프로세스 → 자체 CRM → PostgreSQL", { timeout: 4
     const { bookingDate, closure, chartId } = await fixture(db, websiteToken, sealToken);
     await provision(db, "biroso", { role: "purge", secret: purgeToken });
     const sink = `http://127.0.0.1:${fake.address().port}`;
+    const oldLedger = '{"seq":7,"fixture":"Twenty"}\n';
+    const oldChecks = '{"fixture":"Twenty verification"}\n';
+    await writeFile(join(dir, "ledger.jsonl"), oldLedger);
+    await writeFile(join(dir, "checks.jsonl"), oldChecks);
     child = spawn(process.execPath, ["/biroso/server/server.mjs"], { cwd: "/biroso", stdio: ["ignore", "ignore", "inherit"], env: {
       CRM_BACKEND: "own", CRM_API_URL: "http://api:3300", CRM_API_TOKEN: websiteToken, CRM_API_SEAL_TOKEN: sealToken,
       CRM_API_PURGE_TOKEN: purgeToken,
@@ -136,6 +236,16 @@ test("비로소 실제 프로세스 → 자체 CRM → PostgreSQL", { timeout: 4
       return r.json();
     };
     await t.test("공지, 휴진·찬 예약 칸, 차트 봉인과 검증", async () => {
+      const notRebuild = await fetch(process.env.CRM_API_REBUILD_BIROSO_URL, {
+        method: "POST", headers: { Authorization: `Bearer ${cron}` },
+      });
+      assert.equal(notRebuild.status, 401);
+      await notRebuild.body.cancel();
+      const notVerify = await fetch(`${base}/api/v1/charts/verify`, {
+        headers: { Authorization: `Bearer ${process.env.CRM_API_REBUILD_BIROSO_SECRET}` },
+      });
+      assert.equal(notVerify.status, 401);
+      await notVerify.body.cancel();
       assert.deepEqual((await call("popups")).popups.map(({ title }) => title), ["합성 공지"]);
       assert.deepEqual((await call("closures")).closures, [closure]);
       const { slots } = await call(`slots?date=${bookingDate}`);
@@ -147,9 +257,14 @@ test("비로소 실제 프로세스 → 자체 CRM → PostgreSQL", { timeout: 4
       const verify = await call("charts/verify", true);
       assert.equal(verify.ok, true);
       assert.equal(verify.entries, 1);
+      assert.equal(verify.source, "own");
       assert.equal(webhookCalls, 1);
-      const ledger = await readFile(join(dir, "ledger.jsonl"), "utf8");
+      const ledger = await readFile(join(dir, "own", "ledger.jsonl"), "utf8");
       assert.equal(ledger.includes("합성 증상"), false);
+      assert.equal(JSON.parse(ledger).seq, 1);
+      assert.equal(JSON.parse(await readFile(join(dir, "own", "checks.jsonl"), "utf8")).head, verify.head);
+      assert.equal(await readFile(join(dir, "ledger.jsonl"), "utf8"), oldLedger);
+      assert.equal(await readFile(join(dir, "checks.jsonl"), "utf8"), oldChecks);
       const { rows } = await db.query(`SELECT "sealNo", "sealedAt" IS NOT NULL AS sealed FROM biroso."medicalRecords" WHERE id=$1`, [chartId]);
       assert.deepEqual(rows, [{ sealNo: "1", sealed: true }]);
     });

@@ -5,10 +5,16 @@
 //   docker compose exec api node scripts/chart-ledger.mjs sql <기록 ID>         원래 내용으로 되돌리는 SQL(검토 후 DB 관리자가 실행)
 // 되돌리기는 서명한 기록을 고치는 일이라 DB 트리거가 막는다. SQL은 트리거를 잠시 비켜 가며(session_replication_role) 그 실행이
 // DB 감사 로그(pgaudit)에 남는다. 원장 확인을 받고, 사고 기록(README '진료기록 이상 대응')에 함께 남긴다.
-import { CHART_FIELDS, createLedger, openEntry, parseKey, verifyChain } from "../server/charts.mjs";
+import { CHART_FIELDS, chartLedgerPath, createLedger, openEntry, parseKey, verifyChain } from "../server/charts.mjs";
 
 const [cmd, id] = process.argv.slice(2);
-const ledger = createLedger(process.env.CHART_LEDGER_PATH ?? "/data/charts/ledger.jsonl");
+const backend = process.env.CRM_BACKEND || "twenty";
+if (!["twenty", "own"].includes(backend)) throw new Error("CRM_BACKEND는 twenty 또는 own이어야 합니다.");
+if (backend === "own" && cmd === "sql") {
+  console.error("자체 CRM 원장에는 Twenty 복구 SQL을 생성하지 않습니다.");
+  process.exit(2);
+}
+const ledger = createLedger(chartLedgerPath(backend, process.env.CHART_LEDGER_PATH));
 const entries = await ledger.read();
 const chain = verifyChain(entries);
 

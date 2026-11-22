@@ -46,7 +46,7 @@ export function loadConfig(env = process.env) {
     slotDays: Number(env.SLOT_DAYS ?? 30),
     // cron 서비스(CRON_SECRET), Twenty 워크플로의 환불 요청(ADMIN_SECRET)
     cronSecret: env.CRON_SECRET ?? "",
-    // 진료기록 봉인 장부(서명한 진료기록의 암호화 사본, 해시 체인). 키가 없으면 봉인하지 않는다.
+    // Twenty 장부 경로. 자체 모드는 같은 볼륨의 own/ 아래에 별도 장부를 쓴다.
     chartLedgerPath: env.CHART_LEDGER_PATH ?? "/data/charts/ledger.jsonl",
     chartLedgerKey: env.CHART_LEDGER_KEY ?? "",
     // 봉인·검사 전용 Twenty 키(역할 '진료기록 봉인': 진료기록 읽기·고치기만). 없으면 TWENTY_API_KEY

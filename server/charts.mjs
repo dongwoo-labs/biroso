@@ -17,7 +17,12 @@
 // 해시 규칙(contentHash)은 console(src/industries/clinic-chart.ts)과 같아야 한다. 테스트에 같은 예시 값이 있다.
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+
+export function chartLedgerPath(backend, twentyPath = "/data/charts/ledger.jsonl") {
+  // 자체 체인과 검사 이력은 같은 백업 볼륨의 별도 디렉터리에서 시작한다.
+  return backend === "own" ? join(dirname(twentyPath), "own", "ledger.jsonl") : twentyPath;
+}
 
 // 서명이 덮는 칸. 순서와 이름을 바꾸면 예전 해시와 맞지 않으니 더하기만 한다.
 export const CHART_FIELDS = [
@@ -186,7 +191,7 @@ export async function runSeal({ twenty, ledger, key, log = () => {}, alert = asy
   }
 }
 
-export async function runVerify({ twenty, ledger, checks, log = () => {}, alert = async () => {} }, now = new Date()) {
+export async function runVerify({ twenty, ledger, checks, source, log = () => {}, alert = async () => {} }, now = new Date()) {
   let entries = [], chain, tampered = [], unsealed = [], error = null;
   try {
     entries = await ledger.read();
@@ -203,11 +208,13 @@ export async function runVerify({ twenty, ledger, checks, log = () => {}, alert 
   for (const t of tampered) log({ ts: now.toISOString(), event: "chart_tampered", ...t });
   if (!chain.ok) log({ ts: now.toISOString(), event: "chart_ledger_broken", ...chain });
   const ok = chain.ok && !tampered.length && !unsealed.length && !error;
-  const result = { ts: now.toISOString(), ok, chain, tampered, unsealed, error, entries: entries.length, head: chain.ok ? chain.head : null };
+  const result = { ts: now.toISOString(), ok, chain, tampered, unsealed, error, entries: entries.length,
+    head: chain.ok ? chain.head : null, ...(source ? { source } : {}) };
   if (checks) await checks.append([result]);
   const date = new Date(now.getTime() + 9 * 3600_000).toISOString().slice(0, 10);
+  const label = source === "own" ? " 자체 CRM" : "";
   if (ok) {
-    await alert(`[진료기록 점검 ${date}] 이상 없음. 장부 ${entries.length}줄, 기준값 ${String(chain.head).slice(0, 16) || "-"} (이 문자는 지우지 말고 보관해 주세요)`, { daily: true });
+    await alert(`[진료기록${label} 점검 ${date}] 이상 없음. 장부 ${entries.length}줄, 기준값 ${String(chain.head).slice(0, 16) || "-"} (이 문자는 지우지 말고 보관해 주세요)`, { daily: true });
   } else {
     const what = [
       !chain.ok && `장부 체인 깨짐(${chain.at ?? "-"}번 줄: ${chain.why})`,
@@ -215,7 +222,7 @@ export async function runVerify({ twenty, ledger, checks, log = () => {}, alert 
       unsealed.length && `봉인 안 된 서명 기록 ${unsealed.length}건`,
       error && `검사 실패: ${error}`,
     ].filter(Boolean).join(", ");
-    await alert(`[진료기록 이상 ${date}] ${what}. 관리자는 서버 로그와 장부를 확인해 주세요.`);
+    await alert(`[진료기록${label} 이상 ${date}] ${what}. 관리자는 서버 로그와 장부를 확인해 주세요.`);
   }
   return result;
 }
