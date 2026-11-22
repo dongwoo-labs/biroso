@@ -31,6 +31,8 @@ async function fixture(db, websiteToken, sealToken) {
   const customerId = (await db.query(`INSERT INTO biroso.people(name) VALUES ('{"firstName":"합성"}') RETURNING id`)).rows[0].id;
   const appointmentId = (await db.query(`INSERT INTO biroso.appointments(name,"customerId","appointmentStatus","scheduledAt")
     VALUES ('합성 예약',$1,'REQUESTED',$2) RETURNING id`, [customerId, scheduledAt])).rows[0].id;
+  await db.query(`INSERT INTO biroso.appointments(name,"appointmentStatus","scheduledAt")
+    VALUES ('합성 추가 예약','CONFIRMED',$1)`, [scheduledAt]);
   const id = randomUUID(), now = new Date().toISOString();
   const chart = { id, name: "합성 차트", customerId, appointmentId, doctorId, visitAt: now, signedAt: now, recordStatus: "SIGNED",
     chiefComplaint: "합성 증상", diagnosis: "합성 진단", treatment: "합성 치료", chainId: id, version: 1 };
@@ -120,7 +122,7 @@ test("비로소 실제 프로세스 → 자체 CRM → PostgreSQL", { timeout: 4
       TWENTY_URL: sink, SITE_URL: base, CRON_SECRET: cron, CHART_LEDGER_PATH: join(dir, "ledger.jsonl"),
       CHART_LEDGER_KEY: randomBytes(32).toString("hex"), CHART_ALERT_WEBHOOK_URL: `${sink}/webhook`,
       TWENTY_API_KEY: randomBytes(32).toString("base64url"), ADMIN_SECRET: admin, NOTICE_VERSIONS: notice.version,
-      NICEPAY_CLIENT_ID: clientId, NICEPAY_SECRET_KEY: pgSecret, NICEPAY_API_URL: sink,
+      SLOT_CAPACITY: "2", NICEPAY_CLIENT_ID: clientId, NICEPAY_SECRET_KEY: pgSecret, NICEPAY_API_URL: sink,
     } });
     await waitForSite(child);
     const call = async (path, authorize = false) => {
@@ -283,22 +285,27 @@ test("비로소 실제 프로세스 → 자체 CRM → PostgreSQL", { timeout: 4
       assert.deepEqual((await db.query(`SELECT status FROM biroso.refunds WHERE order_id=$1`, [unresolvedRefund.id])).rows, [{ status: "PENDING" }]);
     });
 
-    await t.test("예약 경합과 문진·동의, 빠른 상담", async () => {
+    await t.test("기존 무키 예약을 포함한 정원 경합, 문진·동의와 빠른 상담", async () => {
       await db.query(`INSERT INTO biroso.products(name,slug,kind,published,telemedicine) VALUES ('합성 진료','visit','RESERVATION',true,true)`);
+      const scheduledAt = kstIso(bookingDate, "11:00");
+      await db.query(`INSERT INTO biroso.appointments(name,"appointmentStatus","scheduledAt","slotKey","deletedAt") VALUES
+        ('합성 기존 예약','CONFIRMED',$1,NULL,NULL), ('합성 취소','CANCELLED',$1,$2,NULL),
+        ('합성 휴지통','CONFIRMED',$1,$3,now())`, [scheduledAt, `${scheduledAt}#0`, `${scheduledAt}#1`]);
       const attempts = await Promise.all(["0201", "0202"].map((suffix) => post("appointments", {
         ...form(suffix), product: "visit", method: "PHONE", date: bookingDate, time: "11:00",
       })));
       assert.deepEqual(attempts.map(({ status }) => status).sort(), [201, 409], attempts.map(({ body }) => body.error).join(", "));
       assert.equal(attempts.find(({ status }) => status === 409).body.error, "slot_taken");
       assert.deepEqual(await one(`SELECT
+        (SELECT count(*)::int FROM biroso.appointments WHERE "scheduledAt"=$1 AND "deletedAt" IS NULL AND "appointmentStatus" <> 'CANCELLED') AS active,
         (SELECT count(*)::int FROM biroso.appointments WHERE "scheduledAt"=$1 AND "slotKey"=$2) AS seats,
         (SELECT count(*)::int FROM biroso.intakes i JOIN biroso.appointments a ON a.id=i."appointmentId"
           WHERE a."slotKey"=$2 AND i."customerId"=a."customerId" AND i.symptoms='합성 문진') AS intakes,
         (SELECT array_agg(c."consentType" ORDER BY c."consentType") FROM biroso."consentRecords" c
           JOIN biroso.appointments a ON a."customerId"=c."personId" WHERE a."slotKey"=$2) AS consents,
         (SELECT count(*)::int FROM biroso.people WHERE "phonesPrimary" IN ('1000000201','1000000202')) AS people`,
-      [kstIso(bookingDate, "11:00"), `${kstIso(bookingDate, "11:00")}#0`]),
-      { seats: 1, intakes: 1, consents: ["MARKETING", "PRIVACY", "SENSITIVE"], people: 1 });
+      [scheduledAt, `${scheduledAt}#0`]),
+      { active: 2, seats: 1, intakes: 1, consents: ["MARKETING", "PRIVACY", "SENSITIVE"], people: 1 });
       const quick = await post("consults", { ...form("0203"), interest: "합성 문의" });
       assert.equal(quick.status, 201, quick.body.error);
       assert.deepEqual(await one(`SELECT c."consultStatus", c.interest,

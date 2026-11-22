@@ -214,7 +214,7 @@ docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | no
 
 ## 자체 CRM API 옵션
 
-비로소 서버의 기본값은 `CRM_BACKEND=twenty`다. `CRM_BACKEND=own`은 팝업·휴진일·예약 시간 조회, 주문·결제·환불·예약·상담, 보유기간 파기, 연락 여정, 진료기록 봉인·검증을 [자체 CRM API](https://github.com/dongwoo-labs/crm/blob/4260c2e938ab1ba321149399d98cca27fe8c1ac4/docs/own-backend-adapters.md#사이트-업무-명령)와 처리한다. 자체 모드에서 실패해도 Twenty로 재시도하지 않는다. 정적 사이트를 빌드하는 `builder`는 기존 Twenty 연결을 유지한다. 운영에 자체 모드를 설정하려면 별도 전환 승인이 필요하다.
+비로소 서버의 기본값은 `CRM_BACKEND=twenty`다. `CRM_BACKEND=own`은 팝업·휴진일·예약 시간 조회, 주문·결제·환불·예약·상담, 보유기간 파기, 연락 여정, 진료기록 봉인·검증을 [자체 CRM API](https://github.com/dongwoo-labs/crm/blob/2ae26bea97a7cadd0d99bc0c407cc12a8332f284/docs/own-backend-adapters.md#사이트-업무-명령)와 처리한다. 자체 모드에서 실패해도 Twenty로 재시도하지 않는다. 정적 사이트를 빌드하는 `builder`는 기존 Twenty 연결을 유지한다. 운영에 자체 모드를 설정하려면 별도 전환 승인이 필요하다.
 
 자체 모드는 CRM API의 HTTP(S) origin인 `CRM_API_URL`과 역할이 서로 다른 토큰 3개가 필요하다. `CRM_API_TOKEN`은 `website`, `CRM_API_SEAL_TOKEN`은 `sealer`, `CRM_API_PURGE_TOKEN`은 `purge` 역할이다. 봉인은 기존 `CHART_LEDGER_PATH`와 `CHART_LEDGER_KEY`를 사용한다. Compose에서 `-f docker-compose.yml -f compose.own-api.yml`을 함께 지정하면 비로소 API만 `CRM_OWN_API_NETWORK`(기본 `crm_own-api-egress`)에 연결한다. CRM의 DB·내부 소비자 네트워크(`crm_own-api`)에는 연결하지 않는다. `CRM_API_URL`에는 CRM API를 가리키는 고유 주소를 지정한다(예: `http://crm-api-1:3300`). 두 스택에 모두 `api`라는 서비스 이름이 있으므로 `http://api:3300`은 피한다.
 
@@ -233,7 +233,7 @@ docker --context colima build -t biroso-crm-test-cache "$CRM_CHECKOUT/services/a
 CRM_API_CACHE_IMAGE=biroso-crm-test-cache bash test/own-stack.sh "$CRM_CHECKOUT"
 ```
 
-시험 기준 CRM 리비전은 `4260c2e938ab1ba321149399d98cca27fe8c1ac4`다. 캐시를 준비하면 재실행 중에는 의존성을 내려받지 않는다. 매 실행은 Colima에 별도 내부 Compose 네트워크를 만들고 비로소 서버, 자체 CRM API, PostgreSQL을 합성 데이터로 실제 실행한다. 결제와 차트 알림은 로컬 대역만 사용한다. 톡톡은 CRM 대기열까지 검사한다. 실제 Twenty·PG·채널이나 운영 장부는 호출하지 않는다.
+시험 기준 CRM 리비전은 `2ae26bea97a7cadd0d99bc0c407cc12a8332f284`다. 캐시를 준비하면 재실행 중에는 의존성을 내려받지 않는다. 매 실행은 Colima에 별도 내부 Compose 네트워크를 만들고 비로소 서버, 자체 CRM API, PostgreSQL을 합성 데이터로 실제 실행한다. 결제와 차트 알림은 로컬 대역만 사용한다. 톡톡은 CRM 대기열까지 검사한다. 실제 Twenty·PG·채널이나 운영 장부는 호출하지 않는다.
 
 ## 개발
 
