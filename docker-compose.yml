@@ -42,6 +42,10 @@ services:
     restart: unless-stopped
     environment:
       <<: *app-env
+      CRM_BACKEND: ${CRM_BACKEND:-twenty}
+      CRM_API_URL: ${CRM_API_URL:-}
+      CRM_API_TOKEN: ${CRM_API_TOKEN:-}
+      CRM_API_SEAL_TOKEN: ${CRM_API_SEAL_TOKEN:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       NOTICE_VERSIONS: ${NOTICE_VERSIONS:-2026-11-01}
       TRUST_PROXY: "1"

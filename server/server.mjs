@@ -5,5 +5,5 @@ import { loadConfig } from "./config.mjs";
 import { createHandler } from "./handler.mjs";
 
 const cfg = loadConfig();
-if (!cfg.twentyApiKey) { console.error("TWENTY_API_KEY가 필요합니다."); process.exit(1); }
+if (cfg.crmBackend === "twenty" && !cfg.twentyApiKey) { console.error("TWENTY_API_KEY가 필요합니다."); process.exit(1); }
 http.createServer(createHandler(cfg)).listen(cfg.port, () => console.error(`api :${cfg.port}`));

@@ -212,6 +212,20 @@ docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | no
 - 비급여 진료 비용: 기존 사이트의 수가표 PDF(2026-08-05 작성, 시행일 빈칸) 134개 항목을 `src/data/npay.json`에 옮겼다. 시행일과 최신 금액을 확인한다. 바뀌면 이 파일을 고친다(한약 상품 가격은 자동).
 - 개인정보 보호책임자(`clinic.json`의 `privacyOfficer`. 이메일은 기존 사이트의 clinic.biroso@gmail.com을 넣었다), 위탁 업체 목록(`src/pages/privacy.astro`).
 
+## 자체 CRM API 격리 시험
+
+비로소 서버 기본값은 `CRM_BACKEND=twenty`다. 현재 초안의 `CRM_BACKEND=own`은 격리 스택에서 팝업, 휴진일, 예약 가능 시간과 진료기록 봉인·검증을 확인하는 데만 쓴다. 운영에는 설정하지 않는다. 주문·결제·환불·예약 신청·빠른 상담·파기·연락 여정은 자체 CRM의 전용 명령 또는 필요한 권한을 연결할 때까지 실행하지 않는다. 이 모드에서 Twenty로 재시도하지 않는다. 정적 사이트를 만드는 `builder`는 바뀌지 않는다.
+
+자체 모드에는 CRM API의 origin인 `CRM_API_URL`, 비로소 `website` 역할의 `CRM_API_TOKEN`, 별도 `sealer` 역할의 `CRM_API_SEAL_TOKEN`이 필요하다. 봉인 장부에는 기존 `CHART_LEDGER_PATH`와 `CHART_LEDGER_KEY`를 쓴다. 아래 시험은 실제 장부나 키 대신 합성 차트와 임시 장부를 사용한다.
+
+```bash
+npm ci
+npm test
+bash test/own-stack.sh <격리 시험용 CRM 체크아웃 경로>
+```
+
+초안의 시험 기준 CRM 리비전은 `05634dfb119638395df171cf33043b86d550858c`다. 매 실행은 Colima에 별도 Compose 프로젝트를 만들고 비로소 서버, 자체 CRM API, PostgreSQL을 실제로 실행한다. 알림과 Twenty 요청은 로컬 시험 서버에서만 받으며, PG나 실제 채널은 호출하지 않는다.
+
 ## 개발
 
 ```bash

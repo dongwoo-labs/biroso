@@ -57,6 +57,11 @@ export function createTwenty({ twentyUrl, twentyApiKey }, fetchImpl = fetch) {
     if (!res.ok) throw new TwentyError(res.status, text);
     return text ? JSON.parse(text) : {};
   }
+  return createRestOperations(call);
+}
+
+// 자체 CRM도 Twenty와 같은 REST 목록·레코드 형식을 쓴다.
+export function createRestOperations(call) {
   const q = (filter, extra = "") => `?filter=${encodeURIComponent(filter)}${extra}`;
   const quoted = (vals) => vals.map((v) => JSON.stringify(String(v))).join(",");
   async function listAll(plural, filter, extra = "") {
