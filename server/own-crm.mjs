@@ -1,18 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { createRestOperations } from "./twenty.mjs";
 
-export function ownCrmConfig(env) {
-  const url = URL.parse(env.CRM_API_URL ?? "");
+export function ownCrmOrigin(value) {
+  const url = URL.parse(value ?? "");
   if (!url || !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
     throw new Error("CRM_API_URL에 자체 CRM의 HTTP(S) origin이 필요합니다.");
   }
+  return url.origin;
+}
+
+export function ownCrmConfig(env) {
+  const url = ownCrmOrigin(env.CRM_API_URL);
   const token = env.CRM_API_TOKEN?.trim();
   const sealToken = env.CRM_API_SEAL_TOKEN?.trim();
   const purgeToken = env.CRM_API_PURGE_TOKEN?.trim();
   if (!token) throw new Error("CRM_API_TOKEN이 필요합니다.");
   if (!sealToken || sealToken === token) throw new Error("별도의 CRM_API_SEAL_TOKEN이 필요합니다.");
   if (purgeToken && [token, sealToken].includes(purgeToken)) throw new Error("파기에는 별도의 CRM_API_PURGE_TOKEN이 필요합니다.");
-  return { url: url.origin, token, sealToken, purgeToken };
+  return { url, token, sealToken, purgeToken };
 }
 
 const commandCodes = new Set([

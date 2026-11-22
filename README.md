@@ -159,13 +159,14 @@ API 키는 Twenty 설정 > API에서 '봉인'(→ `.env`의 `CHART_TWENTY_API_KE
 - 10분마다 `GET /v1/charts/seal`이 서명한 기록을 암호화해 장부(`charts` 볼륨 `ledger.jsonl`, 해시 체인)에 더하고 봉인 번호를 채운다. 서명 뒤 내용이 바뀐 기록이나 장부에 없는 봉인 번호는 **봉인하지 않고** 증거(`kind: suspect`)로 남기고 알린다.
 - 매일 05:30 `GET /v1/charts/verify`가 장부 체인·봉인한 기록·서명 1시간이 지나도 봉인 안 된 기록을 검사해 `checks.jsonl`에 남긴다. 이상이 있으면 알리고, 없으면 "이상 없음 + 장부 끝 해시 앞 16자"를 원장 휴대폰(`CHART_ANCHOR_SMS_TO`)으로 보낸다. 원장은 이 문자를 지우지 않는다. 관리자가 서버의 장부를 고쳐도 원장이 받은 기준값과 맞지 않아 드러난다.
 - 알림은 솔라피 문자(`CHART_ALERT_*`)와 웹훅. 글에는 환자 이름·진료 내용을 넣지 않는다.
+- Twenty는 기존 `/data/charts/ledger.jsonl`과 `/data/charts/checks.jsonl`을 사용한다. 자체 모드는 같은 `charts` 볼륨의 `/data/charts/own/ledger.jsonl`과 `/data/charts/own/checks.jsonl`을 사용한다. 자체 체인의 첫 줄은 `seq: 1`이다. 기존 Twenty 장부·검사 파일과 암호화 백업은 수정하지 않고 보존한다. 기존 장부를 새 체인에 합치거나 Twenty 주문을 가져오지 않는다.
 - `CHART_LEDGER_KEY`(`openssl rand -hex 32`)는 `.env`와 원장이 가진 비밀번호 관리자에 둔다. 잃으면 장부 사본을 열 수 없다.
 
 ### 이상 대응
 
 1. 알림을 받으면 `docker compose exec api node scripts/chart-ledger.mjs check`로 장부 체인과 끝 해시를 보고, 원장이 받은 기준값과 대조한다.
 2. 바뀐 기록: `chart-ledger.mjs show <기록 ID>`로 봉인 당시 내용을 확인한다. crm의 `pg-logs`(pgaudit)와 접속기록에서 누가 언제 바꿨는지 찾는다.
-3. 원장 확인 후 `chart-ledger.mjs sql <기록 ID>`가 만든 SQL로 되돌린다(DB 관리자 실행, 그 실행도 pgaudit에 남는다). 다시 `GET /v1/charts/verify`가 통과해야 끝.
+3. Twenty에서만 원장 확인 후 `chart-ledger.mjs sql <기록 ID>`가 만든 SQL로 되돌린다(DB 관리자 실행, 그 실행도 pgaudit에 남는다). 다시 `GET /v1/charts/verify`가 통과해야 끝이다. 자체 모드에서 `check`와 `show`는 자체 장부를 읽고, `sql`은 Twenty 복구문을 사용하지 못하도록 거절한다. 기존 장부는 백업에서 읽거나 `check` 실행에만 `CRM_BACKEND=twenty`를 지정해 확인한다.
 4. 날짜·기록 ID·원인·조치·확인한 사람을 사고 기록에 남긴다. 유출이 의심되면 개인정보 유출 신고 기준(72시간)을 따로 검토한다.
 
 ### 접속기록 정기 점검(매달)
@@ -214,9 +215,11 @@ docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | no
 
 ## 자체 CRM API 옵션
 
-비로소 서버의 기본값은 `CRM_BACKEND=twenty`다. `CRM_BACKEND=own`은 팝업·휴진일·예약 시간 조회, 주문·결제·환불·예약·상담, 보유기간 파기, 연락 여정, 진료기록 봉인·검증을 [자체 CRM API](https://github.com/dongwoo-labs/crm/blob/2ae26bea97a7cadd0d99bc0c407cc12a8332f284/docs/own-backend-adapters.md#사이트-업무-명령)와 처리한다. 자체 모드에서 실패해도 Twenty로 재시도하지 않는다. 정적 사이트를 빌드하는 `builder`는 기존 Twenty 연결을 유지한다. 운영에 자체 모드를 설정하려면 별도 전환 승인이 필요하다.
+비로소 API와 사이트 빌더의 기본값은 `CRM_BACKEND=twenty`다. `CRM_BACKEND=own`이면 API는 팝업·휴진일·예약 시간 조회, 주문·결제·환불·예약·상담, 보유기간 파기, 연락 여정, 진료기록 봉인·검증을 [자체 CRM API](https://github.com/dongwoo-labs/crm/blob/2ae26bea97a7cadd0d99bc0c407cc12a8332f284/docs/own-backend-adapters.md#사이트-업무-명령)와 처리한다. 사이트 빌더는 같은 API에서 공개 상품·행사·게시글·FAQ와 휴진일만 읽는다. 자체 모드에서 실패해도 Twenty나 저장소 기본 데이터로 대체하지 않는다. 운영에서 자체 모드를 켜려면 별도 전환 승인이 필요하다.
 
-자체 모드는 CRM API의 HTTP(S) origin인 `CRM_API_URL`과 역할이 서로 다른 토큰 3개가 필요하다. `CRM_API_TOKEN`은 `website`, `CRM_API_SEAL_TOKEN`은 `sealer`, `CRM_API_PURGE_TOKEN`은 `purge` 역할이다. 봉인은 기존 `CHART_LEDGER_PATH`와 `CHART_LEDGER_KEY`를 사용한다. Compose에서 `-f docker-compose.yml -f compose.own-api.yml`을 함께 지정하면 비로소 API만 `CRM_OWN_API_NETWORK`(기본 `crm_own-api-egress`)에 연결한다. CRM의 DB·내부 소비자 네트워크(`crm_own-api`)에는 연결하지 않는다. `CRM_API_URL`에는 CRM API를 가리키는 고유 주소를 지정한다(예: `http://crm-api-1:3300`). 두 스택에 모두 `api`라는 서비스 이름이 있으므로 `http://api:3300`은 피한다.
+- 설정: `CRM_API_URL`에는 CRM의 HTTP(S) origin을 지정한다. `compose.cutover.yml`을 쓰는 CRM은 `http://crm-own-api:3300`을 제공한다. 두 스택 모두 `api`라는 서비스를 쓰므로 `http://api:3300`은 피한다. `CRM_API_TOKEN`(`website`), `CRM_API_SEAL_TOKEN`(`sealer`), `CRM_API_PURGE_TOKEN`(`purge`)은 비로소 API에만, `CRM_API_BUILDER_TOKEN`(`builder`)은 빌더에만 전달한다.
+- 격리: `-f docker-compose.yml -f compose.own-api.yml`을 지정하면 API와 빌더가 Twenty 네트워크 대신 `CRM_OWN_API_NETWORK`(기본 `crm_own-api-egress`)에 연결된다. CRM의 DB·내부 소비자 네트워크(`crm_own-api`)에는 연결하지 않는다.
+- 재빌드: CRM의 `CRM_API_REBUILD_BIROSO_URL`에는 `http://biroso-builder:8080/rebuild`를, `CRM_API_REBUILD_BIROSO_SECRET`에는 빌더의 `CRON_SECRET`과 같은 값을 지정한다. CRM은 콘텐츠 변경을 커밋한 뒤 빌더에 재빌드를 요청한다. 기존 사이트 볼륨으로 전환할 때는 첫 빌드를 자동으로 실행하지 않는다. 승인된 전환에서는 인증을 붙여 `POST /rebuild`를 한 번 요청하고 `/healthz`의 `last.ok` 및 새 릴리스의 실제 콘텐츠를 확인한다. 요청의 `202`는 접수만 뜻한다. 빌드 실패 시 직전 릴리스는 유지된다.
 
 - 자체 주문은 CRM이 계산한 가격을 사용한다. 결제 선점 때 재고가 부족하면 PG 승인 전에 장바구니 확인을 안내한다.
 - 자체 환불은 요청마다 `Idempotency-Key`가 필요하다. 같은 키와 본문을 다시 보내도 PG를 다시 호출하지 않으며, 이미 시작한 환불의 완료 여부는 이 응답만으로 알 수 없다. PG 결과가 불명확하거나 PG와 CRM 잔액이 다르면 선점을 유지한다. PG와 CRM 기록을 대조한 뒤 처리한다.
@@ -230,10 +233,11 @@ npm test
 CRM_CHECKOUT=/path/to/isolated-crm
 docker --context colima pull postgres:16
 docker --context colima build -t biroso-crm-test-cache "$CRM_CHECKOUT/services/api"
+docker --context colima build -t biroso/site:own-e2e-deps .
 CRM_API_CACHE_IMAGE=biroso-crm-test-cache bash test/own-stack.sh "$CRM_CHECKOUT"
 ```
 
-시험 기준 CRM 리비전은 `2ae26bea97a7cadd0d99bc0c407cc12a8332f284`다. 캐시를 준비하면 재실행 중에는 의존성을 내려받지 않는다. 매 실행은 Colima에 별도 내부 Compose 네트워크를 만들고 비로소 서버, 자체 CRM API, PostgreSQL을 합성 데이터로 실제 실행한다. 결제와 차트 알림은 로컬 대역만 사용한다. 톡톡은 CRM 대기열까지 검사한다. 실제 Twenty·PG·채널이나 운영 장부는 호출하지 않는다.
+시험에는 비로소 전용 `builder` 역할이 있는 CRM 리비전이 필요하다. 캐시를 준비하면 재실행 중에는 의존성을 내려받지 않는다. 매 실행에서 Colima의 격리 Compose 스택에 비로소 서버·빌더, 자체 CRM API와 PostgreSQL을 띄운다. 합성 콘텐츠로 첫 빌드, CRM 커밋 뒤 재빌드, 읽기 실패 시 직전 릴리스 유지, 기존 장부·검사 파일 보존을 확인한다. 직원의 Cloudflare Access 인증, 결제, 차트 알림은 시험 대역을 사용한다. 톡톡은 CRM 대기열까지 검사한다. 실제 Twenty·PG·채널이나 운영 장부는 사용하지 않는다.
 
 ## 개발
 

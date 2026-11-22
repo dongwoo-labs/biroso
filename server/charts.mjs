@@ -17,7 +17,12 @@
 // 해시 규칙(contentHash)은 console(src/industries/clinic-chart.ts)과 같아야 한다. 테스트에 같은 예시 값이 있다.
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+
+export function chartLedgerPath(backend, twentyPath = "/data/charts/ledger.jsonl") {
+  // 자체 체인과 검사 이력은 같은 백업 볼륨의 별도 디렉터리에서 시작한다.
+  return backend === "own" ? join(dirname(twentyPath), "own", "ledger.jsonl") : twentyPath;
+}
 
 // 서명이 덮는 칸. 순서와 이름을 바꾸면 예전 해시와 맞지 않으니 더하기만 한다.
 export const CHART_FIELDS = [

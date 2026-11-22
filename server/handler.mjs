@@ -24,7 +24,7 @@ import { createConsult, createOwnConsult } from "./consults.mjs";
 import { getPopups } from "./popups.mjs";
 import { runPurge } from "./purge.mjs";
 import { runJourneys } from "./journey.mjs";
-import { createLedger, parseKey, runSeal, runVerify } from "./charts.mjs";
+import { chartLedgerPath, createLedger, parseKey, runSeal, runVerify } from "./charts.mjs";
 import { createAlert } from "./alert.mjs";
 
 const MAX_BODY = 32 * 1024;
@@ -60,7 +60,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
   // 자체 CRM은 홈페이지 자격으로 봉인하지 않는다. Twenty의 기존 키 설정은 유지한다.
   const chartTwenty = own ? createOwnSealer(cfg.ownCrm, deps.crmFetch)
     : deps.chartTwenty ?? (cfg.chartTwentyApiKey ? createTwenty({ ...cfg, twentyApiKey: cfg.chartTwentyApiKey }) : twenty);
-  const ledgerPath = cfg.chartLedgerPath ?? "/data/charts/ledger.jsonl";
+  const ledgerPath = chartLedgerPath(cfg.crmBackend, cfg.chartLedgerPath);
   const chartDeps = {
     twenty: chartTwenty, log, key: parseKey(cfg.chartLedgerKey),
     ledger: deps.ledger ?? createLedger(ledgerPath),
