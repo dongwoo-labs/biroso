@@ -3,8 +3,12 @@
 // 시각 대신 "*/10"이라 쓰면 10분마다(매시 00·10·20…분).
 //   03:00 POST http://builder:8080/rebuild
 //   10:00 mon GET http://api:8788/v1/purge
-// 요청에는 Authorization: Bearer CRON_SECRET을 붙이고, 결과를 한 줄 JSON으로 남긴다.
+// 자체 모드의 재빌드는 별도 키로 인증한다. 그 밖의 작업에는 CRON_SECRET을 쓴다.
 const SECRET = process.env.CRON_SECRET ?? "";
+const REBUILD_URL = "http://builder:8080/rebuild";
+const own = process.env.CRM_BACKEND === "own";
+const rebuildSecret = own ? process.env.BUILDER_REBUILD_SECRET : SECRET;
+if (own && (!rebuildSecret || rebuildSecret === SECRET)) throw new Error("별도의 BUILDER_REBUILD_SECRET이 필요합니다.");
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const log = (o) => console.log(JSON.stringify({ ts: new Date().toISOString(), ...o }));
 
@@ -27,7 +31,8 @@ async function tick() {
     if (fired.has(key)) continue;
     fired.add(key);
     try {
-      const r = await fetch(j.url, { method: j.method, headers: { Authorization: `Bearer ${SECRET}` }, signal: AbortSignal.timeout(300_000) });
+      const rebuild = j.method === "POST" && j.url === REBUILD_URL;
+      const r = await fetch(j.url, { method: j.method, headers: { Authorization: `Bearer ${rebuild ? rebuildSecret : SECRET}` }, signal: AbortSignal.timeout(300_000) });
       log({ event: "job", job: j.line, status: r.status, body: (await r.text()).slice(0, 300) });
     } catch (e) { log({ event: "job_error", job: j.line, error: e.message }); }
   }

@@ -1,5 +1,5 @@
 // 사이트 재빌드 서버(의존성 없음). CRM 재빌드 훅과 cron 서비스가 부른다.
-//   POST /rebuild   빌드를 시작하고 바로 202를 돌려준다. Authorization: Bearer CRON_SECRET
+//   POST /rebuild   빌드를 시작하고 바로 202를 돌려준다. 자체 모드는 BUILDER_REBUILD_SECRET, 기본 모드는 CRON_SECRET으로 인증한다.
 //                   빌드 중에 다시 오면 끝난 뒤 한 번 더 빌드한다.
 //   GET  /healthz   마지막 빌드 결과
 // 처음 뜰 때 올라간 사이트가 없으면 바로 빌드한다.
@@ -12,7 +12,9 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const SECRET = process.env.CRON_SECRET ?? "";
+const own = process.env.CRM_BACKEND === "own";
+const SECRET = (own ? process.env.BUILDER_REBUILD_SECRET : process.env.CRON_SECRET) ?? "";
+if (own && !SECRET) throw new Error("BUILDER_REBUILD_SECRET이 필요합니다.");
 const SITE_DIR = process.env.SITE_DIR ?? "/site";
 const BUILD_DIR = process.env.BUILD_DIR ?? process.cwd();
 const KEEP = 3;

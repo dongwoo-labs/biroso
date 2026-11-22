@@ -104,6 +104,8 @@ Twenty는 AI 요청에 워크스페이스 정보를 넣지 않는다. 그래서 
 cd ~/srv/<프로젝트> && git pull && DOCKER_CONTEXT=colima-selfhost docker compose up -d --build
 ```
 
+비로소를 자체 모드로 전환한 환경에서는 `.env`의 `COMPOSE_FILE=docker-compose.yml:compose.own-api.yml`을 유지한다. 코드 반영, 백업, 점검에도 같은 Compose 조합을 쓴다. 기본 파일만으로 재기동하면 자체 API 네트워크 연결이 빠진다.
+
 콘텐츠(품목, 글, FAQ)만 바뀐 경우는 재빌드 요청이나 03:00 자동 재빌드로 충분하다. 빌드가 실패하면 직전 사이트가 그대로 남는다(`docker compose logs builder`).
 
 ## 백업과 복원

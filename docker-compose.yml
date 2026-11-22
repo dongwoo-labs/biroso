@@ -85,6 +85,7 @@ services:
       CRM_BACKEND: ${CRM_BACKEND:-twenty}
       CRM_API_URL: ${CRM_API_URL:-}
       CRM_API_BUILDER_TOKEN: ${CRM_API_BUILDER_TOKEN:-}
+      BUILDER_REBUILD_SECRET: ${BUILDER_REBUILD_SECRET:-}
       PUBLIC_SITE_URL: ${SITE_URL}
       PUBLIC_LIVE: ${PUBLIC_LIVE:-}
       PUBLIC_GA4_ID: ${PUBLIC_GA4_ID:-}
@@ -102,7 +103,9 @@ services:
     restart: unless-stopped
     command: ["node", "infra/cron.mjs"]
     environment:
+      CRM_BACKEND: ${CRM_BACKEND:-twenty}
       CRON_SECRET: ${CRON_SECRET}
+      BUILDER_REBUILD_SECRET: ${BUILDER_REBUILD_SECRET:-}
       JOBS: |
         03:00 POST http://builder:8080/rebuild
         04:00 GET http://api:8788/v1/purge

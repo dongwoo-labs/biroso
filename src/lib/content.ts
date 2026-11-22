@@ -4,6 +4,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { marked } from "marked";
+import sanitizeHtml from "sanitize-html";
 import { ownCrmOrigin } from "../../server/own-crm.mjs";
 import productsFile from "../data/products.json";
 import eventsFile from "../data/events.json";
@@ -62,14 +63,19 @@ function imagePath(raw: string | null | undefined): string | null {
   } catch { return null; }
 }
 
-// 마크다운 → HTML. 본문은 직원이 Twenty에서 쓰는 글이라 스크립트·이벤트 속성만 걷어 낸다.
-// Twenty에 넣을 때 붙인 사이트 절대 주소(https://…/media/…)는 상대 경로로 되돌린다.
-export function renderMarkdown(md: string | null | undefined) {
+// 사이트 절대 주소(https://…/media/…)는 상대 경로로 되돌린다.
+export function renderMarkdown(md: string | null | undefined, own = false) {
   let src = String(md ?? "");
   src = src.replace(/\]\((https?:\/\/[^)\s]+)\)/g, (m, u) => { const p = imagePath(u); return p ? `](${p})` : m; });
   const html = marked.parse(src, { gfm: true, breaks: false, async: false }) as string;
-  return html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/\son[a-z]+="[^"]*"/gi, "")
-    .replace(/<img /g, '<img loading="lazy" decoding="async" ')
+  const content = own ? sanitizeHtml(html, {
+    allowedTags: [...sanitizeHtml.defaults.allowedTags, "img"],
+    allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, img: ["src", "alt", "title"] },
+    allowedSchemes: ["http", "https", "mailto", "tel"],
+    allowedSchemesByTag: { img: ["http", "https"] },
+    allowProtocolRelative: false,
+  }) : html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/\son[a-z]+="[^"]*"/gi, "");
+  return content.replace(/<img /g, '<img loading="lazy" decoding="async" ')
     .replace(/<table>/g, '<div class="table-wrap"><table>').replace(/<\/table>/g, "</table></div>");
 }
 
@@ -113,6 +119,9 @@ async function listAll(conn: ContentConnection, plural: string, params: Record<s
       throw new Error(`Twenty ${plural}을(를) 읽지 못했습니다 (${res.status}): ${(await res.text()).slice(0, 200)}`);
     }
     const body = await res.json();
+    if (conn.own && (!Array.isArray(body?.data?.[plural]) || typeof body?.pageInfo?.hasNextPage !== "boolean")) {
+      throw new Error(`자체 CRM ${plural}의 목록 응답 형식이 올바르지 않습니다.`);
+    }
     out.push(...body.data[plural]);
     if (!body.pageInfo?.hasNextPage) return out;
     const next = body.pageInfo.endCursor;
@@ -153,23 +162,31 @@ async function withSoo<T extends { slug: string; salePrice: number; regularPrice
     const price = Number(variant?.price ?? (p.sooOption ? NaN : s.sale_price ?? s.price));
     if (Number.isFinite(price) && price > 0) out.salePrice = price;
   } catch (e) {
-    console.warn(`수壽 상품 ${p.sooProductId}(${p.slug})을 읽지 못해 Twenty 값을 씁니다: ${(e as Error).message}`);
+    console.warn(`수壽 상품 ${p.sooProductId}(${p.slug})을 읽지 못해 CRM 값을 씁니다: ${(e as Error).message}`);
   }
   return out;
 }
 
 export const loadProducts = memo(async (): Promise<Product[]> => {
   const conn = contentConnection();
-  const rows = conn ? (await listAll(conn, "products", shown)).map((p) => ({
-    id: p.id, slug: p.slug || p.id, name: p.name ?? "", kind: p.kind ?? "PAYMENT", category: p.category ?? "ETC", title: p.title ?? "",
-    summary: p.summary ?? "", body: md(p.body), regularPrice: won(p.regularPrice), salePrice: won(p.salePrice) || won(p.regularPrice),
-    soldOut: Boolean(p.soldOut), taxFree: Boolean(p.taxFree), freeShipping: Boolean(p.freeShipping), telemedicine: Boolean(p.telemedicine),
-    inPerson: Boolean(p.inPerson), attributes: p.attributes ?? "", image: p.imageUrl?.primaryLinkUrl ?? null,
-    images: [p.imageUrl?.primaryLinkUrl, ...String(p.gallery ?? "").split(/\s+/)].filter(Boolean), sortOrder: p.sortOrder ?? 0,
-    salesChannel: p.salesChannel ?? "OWN", sooProductId: p.sooProductId ?? "", sooOption: p.sooOption ?? "",
-  })) : productsFile.items.filter((p) => p.published).map((p: any, i) => ({ salesChannel: "OWN", ...p, id: `local-${i}` }));
+  const rows = conn ? (await listAll(conn, "products", shown)).map((p) => {
+    const kind = p.kind ?? "PAYMENT", salesChannel = p.salesChannel ?? "OWN";
+    const ownPayment = conn.own && kind === "PAYMENT" && salesChannel !== "SOO_STORE";
+    const price = p.salePrice?.amountMicros != null ? p.salePrice : p.regularPrice;
+    const salePrice = ownPayment ? won(price) : won(p.salePrice) || won(p.regularPrice);
+    const invalidPrice = ownPayment && (price?.currencyCode !== "KRW" || !Number.isSafeInteger(salePrice) || salePrice <= 0 || salePrice > Math.floor(Number.MAX_SAFE_INTEGER / 1_000_000));
+    return {
+      id: p.id, slug: p.slug || p.id, name: p.name ?? "", kind, category: p.category ?? "ETC", title: p.title ?? "",
+      summary: p.summary ?? "", body: md(p.body), regularPrice: invalidPrice ? 0 : won(p.regularPrice), salePrice: invalidPrice ? 0 : salePrice,
+      soldOut: Boolean(p.soldOut) || invalidPrice,
+      taxFree: Boolean(p.taxFree), freeShipping: Boolean(p.freeShipping), telemedicine: Boolean(p.telemedicine),
+      inPerson: Boolean(p.inPerson), attributes: p.attributes ?? "", image: p.imageUrl?.primaryLinkUrl ?? null,
+      images: [p.imageUrl?.primaryLinkUrl, ...String(p.gallery ?? "").split(/\s+/)].filter(Boolean), sortOrder: p.sortOrder ?? 0,
+      salesChannel, sooProductId: p.sooProductId ?? "", sooOption: p.sooOption ?? "",
+    };
+  }) : productsFile.items.filter((p) => p.published).map((p: any, i) => ({ salesChannel: "OWN", ...p, id: `local-${i}` }));
   return (await Promise.all(rows.map((p: any) => withSoo(p)))).map((p: any) => ({
-    ...p, bodyHtml: renderMarkdown(p.body), attributes: parseAttributes(p.attributes),
+    ...p, bodyHtml: renderMarkdown(p.body, conn?.own), attributes: parseAttributes(p.attributes),
     image: imagePath(p.image), images: [...new Set((p.images ?? []).map(imagePath).filter(Boolean))] as string[],
   }));
 });
@@ -180,7 +197,7 @@ export const loadEvents = memo(async (): Promise<Event[]> => {
     slug: e.slug || e.id, name: e.name ?? "", subtitle: e.subtitle ?? "", summary: e.summary ?? "", body: md(e.body),
     image: e.imageUrl?.primaryLinkUrl ?? null, startDate: e.startDate ?? null, endDate: e.endDate ?? null,
   })) : eventsFile.items;
-  return rows.map((e: any) => ({ ...e, bodyHtml: renderMarkdown(e.body), image: imagePath(e.image) }));
+  return rows.map((e: any) => ({ ...e, bodyHtml: renderMarkdown(e.body, conn?.own), image: imagePath(e.image) }));
 });
 
 export const loadPosts = memo(async (): Promise<Post[]> => {
@@ -189,7 +206,7 @@ export const loadPosts = memo(async (): Promise<Post[]> => {
     slug: p.slug || p.id, board: p.board ?? "NEWS", name: p.name ?? "", summary: p.summary ?? "", body: md(p.body),
     image: p.imageUrl?.primaryLinkUrl ?? null, publishedOn: p.publishedOn ?? (p.createdAt ?? "").slice(0, 10),
   })) : postsFile.items.map((p) => ({ ...p, publishedOn: p.publishedAt }));
-  return rows.map((p: any) => ({ ...p, bodyHtml: renderMarkdown(p.body), image: imagePath(p.image) }));
+  return rows.map((p: any) => ({ ...p, bodyHtml: renderMarkdown(p.body, conn?.own), image: imagePath(p.image) }));
 });
 
 export const loadFaqs = memo(async (): Promise<Faq[]> => {

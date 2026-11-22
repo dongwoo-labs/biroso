@@ -191,7 +191,7 @@ export async function runSeal({ twenty, ledger, key, log = () => {}, alert = asy
   }
 }
 
-export async function runVerify({ twenty, ledger, checks, log = () => {}, alert = async () => {} }, now = new Date()) {
+export async function runVerify({ twenty, ledger, checks, source, log = () => {}, alert = async () => {} }, now = new Date()) {
   let entries = [], chain, tampered = [], unsealed = [], error = null;
   try {
     entries = await ledger.read();
@@ -208,11 +208,13 @@ export async function runVerify({ twenty, ledger, checks, log = () => {}, alert 
   for (const t of tampered) log({ ts: now.toISOString(), event: "chart_tampered", ...t });
   if (!chain.ok) log({ ts: now.toISOString(), event: "chart_ledger_broken", ...chain });
   const ok = chain.ok && !tampered.length && !unsealed.length && !error;
-  const result = { ts: now.toISOString(), ok, chain, tampered, unsealed, error, entries: entries.length, head: chain.ok ? chain.head : null };
+  const result = { ts: now.toISOString(), ok, chain, tampered, unsealed, error, entries: entries.length,
+    head: chain.ok ? chain.head : null, ...(source ? { source } : {}) };
   if (checks) await checks.append([result]);
   const date = new Date(now.getTime() + 9 * 3600_000).toISOString().slice(0, 10);
+  const label = source === "own" ? " 자체 CRM" : "";
   if (ok) {
-    await alert(`[진료기록 점검 ${date}] 이상 없음. 장부 ${entries.length}줄, 기준값 ${String(chain.head).slice(0, 16) || "-"} (이 문자는 지우지 말고 보관해 주세요)`, { daily: true });
+    await alert(`[진료기록${label} 점검 ${date}] 이상 없음. 장부 ${entries.length}줄, 기준값 ${String(chain.head).slice(0, 16) || "-"} (이 문자는 지우지 말고 보관해 주세요)`, { daily: true });
   } else {
     const what = [
       !chain.ok && `장부 체인 깨짐(${chain.at ?? "-"}번 줄: ${chain.why})`,
@@ -220,7 +222,7 @@ export async function runVerify({ twenty, ledger, checks, log = () => {}, alert 
       unsealed.length && `봉인 안 된 서명 기록 ${unsealed.length}건`,
       error && `검사 실패: ${error}`,
     ].filter(Boolean).join(", ");
-    await alert(`[진료기록 이상 ${date}] ${what}. 관리자는 서버 로그와 장부를 확인해 주세요.`);
+    await alert(`[진료기록${label} 이상 ${date}] ${what}. 관리자는 서버 로그와 장부를 확인해 주세요.`);
   }
   return result;
 }

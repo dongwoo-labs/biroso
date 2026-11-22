@@ -159,7 +159,7 @@ API 키는 Twenty 설정 > API에서 '봉인'(→ `.env`의 `CHART_TWENTY_API_KE
 - 10분마다 `GET /v1/charts/seal`이 서명한 기록을 암호화해 장부(`charts` 볼륨 `ledger.jsonl`, 해시 체인)에 더하고 봉인 번호를 채운다. 서명 뒤 내용이 바뀐 기록이나 장부에 없는 봉인 번호는 **봉인하지 않고** 증거(`kind: suspect`)로 남기고 알린다.
 - 매일 05:30 `GET /v1/charts/verify`가 장부 체인·봉인한 기록·서명 1시간이 지나도 봉인 안 된 기록을 검사해 `checks.jsonl`에 남긴다. 이상이 있으면 알리고, 없으면 "이상 없음 + 장부 끝 해시 앞 16자"를 원장 휴대폰(`CHART_ANCHOR_SMS_TO`)으로 보낸다. 원장은 이 문자를 지우지 않는다. 관리자가 서버의 장부를 고쳐도 원장이 받은 기준값과 맞지 않아 드러난다.
 - 알림은 솔라피 문자(`CHART_ALERT_*`)와 웹훅. 글에는 환자 이름·진료 내용을 넣지 않는다.
-- Twenty는 기존 `/data/charts/ledger.jsonl`과 `/data/charts/checks.jsonl`을 사용한다. 자체 모드는 같은 `charts` 볼륨의 `/data/charts/own/ledger.jsonl`과 `/data/charts/own/checks.jsonl`을 사용한다. 자체 체인의 첫 줄은 `seq: 1`이다. 기존 Twenty 장부·검사 파일과 암호화 백업은 수정하지 않고 보존한다. 기존 장부를 새 체인에 합치거나 Twenty 주문을 가져오지 않는다.
+- Twenty는 기존 `/data/charts/ledger.jsonl`과 `/data/charts/checks.jsonl`을 사용한다. 자체 모드는 같은 `charts` 볼륨의 `/data/charts/own/ledger.jsonl`과 `/data/charts/own/checks.jsonl`을 사용한다. 자체 체인의 첫 줄은 `seq: 1`이다. 자체 검사 기록과 알림은 자체 CRM을 표시한다. 승인된 전환 전 마지막 Twenty 기준값은 보존 기록과 대조해 남긴다. 기존 Twenty 장부·검사 파일과 암호화 백업은 수정하지 않고 보존한다. 기존 장부를 새 체인에 합치거나 Twenty 주문을 가져오지 않는다. 이 전환은 아직 자체 CRM에서 봉인한 기록이 없는 환경을 전제로 한다. 이전 방식으로 자체 CRM에서 봉인한 기록이 있다면 전환하지 말고 해당 장부의 보존부터 확인한다.
 - `CHART_LEDGER_KEY`(`openssl rand -hex 32`)는 `.env`와 원장이 가진 비밀번호 관리자에 둔다. 잃으면 장부 사본을 열 수 없다.
 
 ### 이상 대응
@@ -219,7 +219,8 @@ docker compose exec -T access-proxy cat /var/log/twenty-access/access.jsonl | no
 
 - 설정: `CRM_API_URL`에는 CRM의 HTTP(S) origin을 지정한다. `compose.cutover.yml`을 쓰는 CRM은 `http://crm-own-api:3300`을 제공한다. 두 스택 모두 `api`라는 서비스를 쓰므로 `http://api:3300`은 피한다. `CRM_API_TOKEN`(`website`), `CRM_API_SEAL_TOKEN`(`sealer`), `CRM_API_PURGE_TOKEN`(`purge`)은 비로소 API에만, `CRM_API_BUILDER_TOKEN`(`builder`)은 빌더에만 전달한다.
 - 격리: `-f docker-compose.yml -f compose.own-api.yml`을 지정하면 API와 빌더가 Twenty 네트워크 대신 `CRM_OWN_API_NETWORK`(기본 `crm_own-api-egress`)에 연결된다. CRM의 DB·내부 소비자 네트워크(`crm_own-api`)에는 연결하지 않는다.
-- 재빌드: CRM의 `CRM_API_REBUILD_BIROSO_URL`에는 `http://biroso-builder:8080/rebuild`를, `CRM_API_REBUILD_BIROSO_SECRET`에는 빌더의 `CRON_SECRET`과 같은 값을 지정한다. CRM은 콘텐츠 변경을 커밋한 뒤 빌더에 재빌드를 요청한다. 기존 사이트 볼륨으로 전환할 때는 첫 빌드를 자동으로 실행하지 않는다. 승인된 전환에서는 인증을 붙여 `POST /rebuild`를 한 번 요청하고 `/healthz`의 `last.ok` 및 새 릴리스의 실제 콘텐츠를 확인한다. 요청의 `202`는 접수만 뜻한다. 빌드 실패 시 직전 릴리스는 유지된다.
+- 재빌드 인증: 자체 모드의 비로소 `BUILDER_REBUILD_SECRET`과 CRM의 `CRM_API_REBUILD_BIROSO_SECRET`을 같은 값으로 지정한다. API 작업용 `CRON_SECRET`과는 다른 값을 쓴다. CRM의 `CRM_API_REBUILD_BIROSO_URL`은 `http://biroso-builder:8080/rebuild`다. CRM은 콘텐츠 변경을 커밋한 뒤 이 주소를 호출한다.
+- 첫 빌드: 운영 전환 전에 자체 CRM에 필요한 공개 콘텐츠와 가격·품절 상태를 준비한다. CRM의 빈 목록은 읽기 실패가 아니므로 그대로 빌드될 수 있다. 기존 릴리스가 있으면 빌더 시작 시 빌드하지 않지만, CRM 콘텐츠 커밋이나 03:00 KST 작업은 재빌드를 요청한다. 승인된 전환에서는 전용 키로 `POST /rebuild`를 요청하고 `/healthz`의 새 `last.ok`와 새 릴리스의 실제 콘텐츠를 확인한다. 요청의 `202`는 접수만 뜻한다. 빌드 실패 시 직전 릴리스는 유지된다.
 
 - 자체 주문은 CRM이 계산한 가격을 사용한다. 결제 선점 때 재고가 부족하면 PG 승인 전에 장바구니 확인을 안내한다.
 - 자체 환불은 요청마다 `Idempotency-Key`가 필요하다. 같은 키와 본문을 다시 보내도 PG를 다시 호출하지 않으며, 이미 시작한 환불의 완료 여부는 이 응답만으로 알 수 없다. PG 결과가 불명확하거나 PG와 CRM 잔액이 다르면 선점을 유지한다. PG와 CRM 기록을 대조한 뒤 처리한다.

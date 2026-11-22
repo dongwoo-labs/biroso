@@ -62,7 +62,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
     : deps.chartTwenty ?? (cfg.chartTwentyApiKey ? createTwenty({ ...cfg, twentyApiKey: cfg.chartTwentyApiKey }) : twenty);
   const ledgerPath = chartLedgerPath(cfg.crmBackend, cfg.chartLedgerPath);
   const chartDeps = {
-    twenty: chartTwenty, log, key: parseKey(cfg.chartLedgerKey),
+    twenty: chartTwenty, log, key: parseKey(cfg.chartLedgerKey), ...(own ? { source: "own" } : {}),
     ledger: deps.ledger ?? createLedger(ledgerPath),
     checks: deps.checks ?? createLedger(ledgerPath.replace(/[^/]+$/, "checks.jsonl")),
     alert: deps.alert ?? createAlert(cfg.chartAlert ?? {}, { log }),

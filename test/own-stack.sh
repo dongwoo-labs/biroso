@@ -91,7 +91,7 @@ services:
       CRM_BACKEND: own
       CRM_API_URL: http://crm-own-api:3300
       CRM_API_BUILDER_TOKEN: \${CRM_API_BUILDER_TOKEN}
-      CRON_SECRET: \${CRM_API_REBUILD_BIROSO_SECRET}
+      BUILDER_REBUILD_SECRET: \${CRM_API_REBUILD_BIROSO_SECRET}
     command:
       - sh
       - -ec
