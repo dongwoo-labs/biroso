@@ -113,8 +113,12 @@ test("보유기간 파기는 별도 토큰으로 업무 명령 하나만 호출�
 test("자체 여정 조회 오류는 빈 목록으로 바꾸지 않고, 고유 키 중복만 건너뛴다", async () => {
   const { ownCrm } = loadConfig(fixture);
   const client = createOwnBusiness(ownCrm, async (url, { method }) => {
-    const object = new URL(url).pathname.split("/").at(-1);
-    if (method === "GET") return object === "counselThreads" ? new Response(null, { status: 403 }) : Response.json({ data: { [object]: [] } });
+    const { pathname, searchParams } = new URL(url);
+    const object = pathname.split("/").at(-1);
+    if (method === "GET") {
+      assert.equal(searchParams.get("order_by"), "id[AscNullsLast]");
+      return object === "counselThreads" ? new Response(null, { status: 403 }) : Response.json({ data: { [object]: [] } });
+    }
     return Response.json({ error: object === "messages" ? "Duplicate record violates a unique constraint" : "Record conflicts with existing state" }, { status: 409 });
   });
   await assert.rejects(client.journeyData(), { status: 403 });

@@ -50,7 +50,6 @@ async function readBody(req) {
 export function createHandler(cfg = loadConfig(), deps = {}) {
   const own = cfg.crmBackend === "own";
   const twenty = own ? createOwnWebsite(cfg.ownCrm, deps.crmFetch) : deps.twenty ?? createTwenty(cfg);
-  // CRM 구현 리비전이 병합될 때까지 이 어댑터는 합성 단위 테스트에서만 주입한다.
   const crm = own ? deps.ownBusiness : null;
   const ownBlocked = own && !crm;
   const nicepay = ownBlocked ? null : deps.nicepay ?? (cfg.nicepay ? createNicepay(cfg.nicepay) : null);
@@ -108,7 +107,7 @@ export function createHandler(cfg = loadConfig(), deps = {}) {
     if (path === "/v1/journeys") {
       if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });
       if (ownBlocked) return ownUnavailable();
-      try { return send(200, await runJourneys(own ? { ...ctxDeps, twenty: crm } : ctxDeps, now)); } catch (e) { return fail(e); }
+      try { return send(200, await runJourneys(own ? { ...ctxDeps, twenty: crm, ownTalk: true } : ctxDeps, now)); } catch (e) { return fail(e); }
     }
     if (path === "/v1/charts/seal" || path === "/v1/charts/verify") {
       if (!bearer(cfg.cronSecret)) return send(401, { error: "unauthorized" });

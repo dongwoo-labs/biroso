@@ -6,7 +6,7 @@ import { completeOwnPayment, createOwnOrder, refundOwnOrder } from "../server/ow
 
 const cfg = loadConfig({ SITE_URL: "https://clinic.test.invalid", NICEPAY_CLIENT_ID: "fixture", MIN_FILL_MS: "0" });
 const orderId = "11111111-1111-4111-8111-111111111111", refundId = "22222222-2222-4222-8222-222222222222";
-const orderNo = "BR261122ABCDEF", tid = "fixture-tid", noResult = () => { throw new Error("unexpected call"); };
+const orderNo = "BR261122ABCDEF", tid = "fixture:tid", noResult = () => { throw new Error("unexpected call"); };
 const form = { authResultCode: "0000", orderId: orderNo, tid, amount: "12000", clientId: "fixture" };
 const paid = { resultCode: "0000", status: "paid", amount: 12000, orderId: orderNo, tid, paidAt: "2026-11-22T12:00:00+09:00", payMethod: "card" };
 const start = { orderId, orderStatus: "PENDING", executePg: true };
@@ -57,7 +57,7 @@ test("결제는 CRM 선점이 허용한 때만 PG를 호출하고 검증된 승�
   assert.deepEqual(d.commands.map((c) => c.path.split("/").at(-1)), ["start", "approve"]);
   assert.equal(d.commands[0].key, d.commands[1].key);
   assert.deepEqual(d.commands[1].body, { tid, amount: 12000, paidAt: "2026-11-22T03:00:00.000Z", payMethod: "CARD" });
-  assert.deepEqual(d.payments, [{ path: `/v1/payments/${tid}`, body: { amount: 12000 }, redirect: "error" }]);
+  assert.deepEqual(d.payments, [{ path: `/v1/payments/${encodeURIComponent(tid)}`, body: { amount: 12000 }, redirect: "error" }]);
   const replay = fixture({ command: () => ({ ...start, executePg: false }) });
   assert.equal(pathOf(await completeOwnPayment(form, replay)), "/order/fail/");
   assert.equal(replay.payments.length, 0);
@@ -66,6 +66,16 @@ test("결제는 CRM 선점이 허용한 때만 PG를 호출하고 검증된 승�
   assert.equal(pathOf(await completeOwnPayment(form, settled)), "/order/complete/");
   assert.equal(settled.commands.length, 0);
   assert.equal(settled.payments.length, 0);
+});
+
+test("결제 선점 전에 재고가 바뀌면 재고 오류를 안내하고 PG는 호출하지 않는다", async () => {
+  const d = fixture({ command: () => { throw Object.assign(new Error("Own CRM 409"), { status: 409, code: "cart_changed" }); } });
+  const result = new URL(await completeOwnPayment(form, d));
+  assert.equal(result.pathname, "/order/fail/");
+  assert.match(result.searchParams.get("reason"), /상품이나 재고가 바뀌었어요/);
+  assert.equal(d.payments.length, 0);
+  assert.equal(d.logs.length, 0);
+  assert.equal(d.commands.length, 1);
 });
 
 test("PG 불명확·다른 TID·CRM 기록 유실에는 승인이나 자동취소를 다시 호출하지 않는다", async () => {

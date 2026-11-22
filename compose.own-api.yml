@@ -1,0 +1,17 @@
+# 자체 모드를 명시적으로 선택한다. 정적 사이트 builder의 Twenty 연결은 유지한다.
+services:
+  api:
+    networks: !override
+      default: {}
+      crm-own-api: {}
+    environment:
+      CRM_BACKEND: own
+      TWENTY_API_KEY: ""
+      CHART_TWENTY_API_KEY: ""
+      CHAT_RETENTION_DAYS: ${CHAT_RETENTION_DAYS:-365}
+      QUICK_CONSULT_RETENTION_DAYS: ${QUICK_CONSULT_RETENTION_DAYS:-90}
+      SLOT_CAPACITY: ${SLOT_CAPACITY:-1}
+networks:
+  crm-own-api:
+    external: true
+    name: ${CRM_OWN_API_NETWORK:-crm_own-api}

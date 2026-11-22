@@ -165,7 +165,9 @@ export function createRestOperations(call, { strictJourneys = false } = {}) {
 
     // 연락 여정(server/journey.mjs): 판단에 필요한 레코드를 모두 읽는다(한의원 한 곳 규모, 관계는 id만)
     async journeyData() {
-      const all = (plural) => listAll(plural, "", "&depth=0");
+      // 자체 CRM의 홈페이지 역할은 일부 여정 객체의 기본 정렬 필드(createdAt)를 읽을 수 없다.
+      const query = strictJourneys ? "&depth=0&order_by=id[AscNullsLast]" : "&depth=0";
+      const all = (plural) => listAll(plural, "", query);
       const [rules, tasks, prescriptions, appointments, people, packages, messages, orders, threads, talks] = await Promise.all([
         all("contactRules"),
         all("contactTasks"),
@@ -174,11 +176,11 @@ export function createRestOperations(call, { strictJourneys = false } = {}) {
         all("people"),
         all("patientPackages"),
         // 여정이 만든 발송(중복 방지 키가 있는 것)만
-        listAll("messages", "dedupeKey[is]:NOT_NULL", "&depth=0"),
+        listAll("messages", "dedupeKey[is]:NOT_NULL", query),
         // 한약 발송 안내용(송장 넣은 주문), 톡톡 안내용(환자와 이어진 대화, 여정이 보낸 톡톡)
-        optionalJourney(listAll("clinicOrders", "shippedAt[is]:NOT_NULL", "&depth=0")),
-        optionalJourney(listAll("counselThreads", "customerId[is]:NOT_NULL", "&depth=0")),
-        optionalJourney(listAll("counselMessages", "dedupeKey[is]:NOT_NULL", "&depth=0")),
+        optionalJourney(listAll("clinicOrders", "shippedAt[is]:NOT_NULL", query)),
+        optionalJourney(listAll("counselThreads", "customerId[is]:NOT_NULL", query)),
+        optionalJourney(listAll("counselMessages", "dedupeKey[is]:NOT_NULL", query)),
       ]);
       return { rules, tasks, prescriptions, appointments, people, packages, messages, orders, threads, talks, clinicName: process.env.CLINIC_NAME || "비로소한의원" };
     },

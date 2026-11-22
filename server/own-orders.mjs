@@ -41,7 +41,7 @@ export async function completeOwnPayment(form, { cfg, crm, nicepay, log = () => 
   const { tid } = form;
   const amount = Number(form.amount);
   if (form.authResultCode !== "0000") return fail("결제가 취소됐어요.");
-  if (!orderNo || !isOrderNo(tid) || !isWon(amount) || amount === 0 || form.clientId !== nicepay.clientId || !nicepay.verify(form)) {
+  if (!orderNo || !validCommandKey(tid) || !isWon(amount) || amount === 0 || form.clientId !== nicepay.clientId || !nicepay.verify(form)) {
     return fail("결제 확인에 실패했어요. 다시 시도해 주세요.");
   }
   const order = await crm.findOrder(orderNo);
@@ -55,6 +55,7 @@ export async function completeOwnPayment(form, { cfg, crm, nicepay, log = () => 
     attempt = await crm.command(`${path}/start`, key, { tid, amount });
   } catch (error) {
     if (error.code === "amount_mismatch") return fail("결제 금액이 주문과 달라요. 다시 주문해 주세요.");
+    if (error.code === "cart_changed") return fail("상품이나 재고가 바뀌었어요. 장바구니를 다시 확인해 주세요.");
     return reconcile("start");
   }
   if (attempt.executePg !== true || attempt.orderId !== order.id || attempt.orderStatus !== "PENDING") return reconcile("start");
@@ -108,7 +109,7 @@ export async function refundOwnOrder(body, key, { cfg, crm, nicepay, log = () =>
   if (reservation.orderId !== order.id) throw reconcile("reserve");
   if (reservation.executePg === false && reservation.refundId === null && reservation.orderStatus === "CANCELLED") return { orderNo, refunded: 0 };
   const { refundId, amount: reserved, taxFreeAmount, fullCancel } = reservation;
-  if (reservation.executePg !== true || !isId(refundId) || !isOrderNo(order.pgTid) || !isWon(reserved) || reserved === 0 ||
+  if (reservation.executePg !== true || !isId(refundId) || !validCommandKey(order.pgTid) || !isWon(reserved) || reserved === 0 ||
       (amount !== undefined && reserved !== amount) || !isWon(taxFreeAmount) || taxFreeAmount > reserved ||
       typeof fullCancel !== "boolean") throw reconcile("reserve");
   let cancelled;
